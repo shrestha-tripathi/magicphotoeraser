@@ -4,6 +4,14 @@
   MagicPhotoEraser design tokens — Tailwind v4 (@theme), NO tailwind.config.js.
   Both light + dark themes are mandatory. Dark follows prefers-color-scheme.
 
+  ⚠️ Tailwind v4 trap: `@theme` must NOT be nested inside `@media`. Tailwind
+  hoists any @theme block to :root unconditionally, so a nested dark @theme
+  silently OVERWRITES the light tokens (dark-only site, light mode impossible).
+  Correct pattern: light/default tokens in @theme; dark overrides in a PLAIN
+  `:root` rule inside @media (regular CSS custom-property overrides, not @theme).
+  Every component references these via var(--color-*), so overriding the var on
+  :root inside the media query flips the whole site correctly.
+
   Brand accent = a confident violet ("magic") with a warm fallback.
   Surfaces stay near-neutral so photos (the real content) pop.
 */
@@ -27,8 +35,9 @@
     Helvetica, Arial, sans-serif;
 }
 
+/* Dark theme — plain :root override (NOT @theme — see trap note above). */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-bg: #0a0a0a;
     --color-bg-subtle: #141416;
     --color-bg-muted: #1f1f23;

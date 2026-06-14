@@ -1,0 +1,190 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import MechanismAnimation from "../components/MechanismAnimation.astro";
+import { site } from "../site.config";
+
+const title = "How it works";
+const description = `How ${site.name} erases objects from photos entirely in your browser — on-device AI, crop-bbox inpainting that keeps the rest of your photo sharp, and zero uploads.`;
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
+    { "@type": "ListItem", position: 2, name: "How it works", item: `${site.url}/how-it-works` },
+  ],
+};
+
+const howToSchema = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: `How to erase an object from a photo with ${site.name}`,
+  description:
+    "Remove an unwanted object from a photo for free, entirely in your browser, without uploading the image.",
+  totalTime: "PT1M",
+  step: [
+    { "@type": "HowToStep", name: "Open your photo", text: "Drag a photo into the eraser, paste it, or pick a file. It loads straight into your browser — nothing is uploaded." },
+    { "@type": "HowToStep", name: "Brush over the object", text: "Paint over the thing you want gone — a person, a sign, a watermark, a stray object." },
+    { "@type": "HowToStep", name: "Erase", text: "The on-device AI reconstructs what was behind the object from the surrounding pixels, processing only the region you brushed." },
+    { "@type": "HowToStep", name: "Download", text: "Save the full-resolution result with no watermark. EXIF metadata is stripped for privacy." },
+  ],
+};
+
+/* Privacy / tech pillars */
+const pillars = [
+  {
+    title: "Nothing is uploaded",
+    body: "Your photo is decoded, processed, and saved entirely inside your browser tab. There's no server to receive it. Open your Network tab during an erase — you'll see no outbound request carrying image data.",
+    icon: `<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79"/><path d="M9.21 4.21A6.67 6.67 0 0 1 12 4a6.5 6.5 0 0 1 6.5 6.5"/>`,
+  },
+  {
+    title: "The AI runs on your hardware",
+    body: "We use onnxruntime-web to run the inpainting model with WebGPU when your device supports it, falling back to WASM everywhere else. The compute happens on your GPU/CPU — not a rented cloud GPU.",
+    icon: `<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>`,
+  },
+  {
+    title: "It works offline",
+    body: "The first erase downloads the model once and caches it on your device. After that, the eraser keeps working with no internet connection at all.",
+    icon: `<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>`,
+  },
+];
+---
+
+<Layout title={title} description={description} jsonLd={[howToSchema, breadcrumbSchema]}>
+  <Header />
+
+  <main>
+    <div class="mx-auto max-w-3xl px-4 pt-12 sm:px-6 sm:pt-16">
+      <nav class="text-sm text-[var(--color-fg-subtle)]" aria-label="Breadcrumb">
+        <a href="/" class="hover:text-[var(--color-fg)]">Home</a>
+        <span class="px-1.5">/</span>
+        <span class="text-[var(--color-fg-muted)]">How it works</span>
+      </nav>
+
+      <header class="mt-6">
+        <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+          How the eraser works
+        </h1>
+        <p class="mt-4 text-lg text-[var(--color-fg-muted)]">
+          {site.name} removes objects from photos using AI that runs entirely in
+          your browser. Here's what actually happens when you click "Erase" —
+          and why the rest of your photo stays perfectly sharp.
+        </p>
+      </header>
+    </div>
+
+    {/* The mechanism */}
+    <section class="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <MechanismAnimation />
+    </section>
+
+    {/* The crop-bbox deep dive — the moat */}
+    <section class="border-y border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+      <div class="mx-auto max-w-3xl px-4 py-14 sm:px-6">
+        <span class="text-sm font-semibold uppercase tracking-wide text-[var(--color-accent)]">
+          The key idea
+        </span>
+        <h2 class="mt-2 text-3xl font-bold tracking-tight">
+          Why your photo stays sharp
+        </h2>
+        <div class="mt-5 space-y-4 text-[var(--color-fg-muted)] leading-relaxed">
+          <p>
+            Inpainting AI models are trained to work at a small, fixed size —
+            around 512×512 pixels. The naïve approach is to shrink your entire
+            photo down to that size, erase, and scale the result back up. That
+            works, but it <b class="text-[var(--color-fg)]">softens the whole
+            image</b> — which is exactly why the free tier of upload-based tools
+            looks blurry.
+          </p>
+          <p>
+            We take a different path that's only practical because everything
+            runs locally:
+          </p>
+          <blockquote class="border-l-2 border-[var(--color-accent)] pl-4 text-[var(--color-fg)]">
+            We crop a padded box around just the region you brushed, resize
+            <em>only that crop</em> to the model's size, inpaint it, and then
+            composite the result back into your <b>full-resolution original</b>
+            with feathered edges.
+          </blockquote>
+          <p>
+            The 95% of the image you never touched is left completely untouched —
+            pixel-for-pixel identical to your original. Only the small patch you
+            erased is model-processed. That's the entire difference between "free
+            tool that softens your photo" and "free tool that keeps it sharp,"
+            and it's the reason we can give away full-resolution results that
+            other tools charge for.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    {/* Privacy / tech pillars */}
+    <section class="mx-auto max-w-5xl px-4 py-16 sm:px-6">
+      <h2 class="text-center text-3xl font-bold tracking-tight">
+        Private by architecture, not by promise
+      </h2>
+      <p class="mx-auto mt-4 max-w-2xl text-center text-[var(--color-fg-muted)]">
+        "Your photos never leave your device" isn't a privacy policy you have to
+        trust — it's how the app is built.
+      </p>
+
+      <div class="mt-10 grid gap-4 md:grid-cols-3">
+        {
+          pillars.map((p) => (
+            <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6">
+              <span
+                class="inline-flex size-10 items-center justify-center rounded-lg text-[var(--color-accent)]"
+                style="background-color: color-mix(in srgb, var(--color-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);"
+                aria-hidden="true"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={p.icon} />
+              </span>
+              <h3 class="mt-4 text-lg font-semibold text-[var(--color-fg)]">{p.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-[var(--color-fg-muted)]">{p.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    {/* Steps */}
+    <section class="border-t border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+      <div class="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+        <h2 class="text-3xl font-bold tracking-tight">Erasing, step by step</h2>
+        <ol class="mt-8 space-y-6">
+          {
+            [
+              { t: "Open your photo", d: "Drag it in, paste it, or pick a file. It loads straight into your browser." },
+              { t: "Brush over the object", d: "Paint over whatever you want gone — a person, a sign, a watermark, a stray object." },
+              { t: "Click Erase", d: "The on-device AI reconstructs what was behind the object, processing only the region you brushed." },
+              { t: "Download", d: "Save the full-resolution result — no watermark, EXIF stripped, completely free." },
+            ].map((s, i) => (
+              <li class="flex gap-4">
+                <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent)] font-bold text-[var(--color-accent-fg)]">
+                  {i + 1}
+                </span>
+                <div>
+                  <h3 class="font-semibold text-[var(--color-fg)]">{s.t}</h3>
+                  <p class="mt-1 text-sm text-[var(--color-fg-muted)]">{s.d}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+
+        <div class="mt-10">
+          <a
+            href="/app"
+            class="inline-flex rounded-lg bg-[var(--color-accent)] px-7 py-3.5 font-semibold text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
+          >
+            Try it now — free
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>

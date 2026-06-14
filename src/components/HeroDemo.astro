@@ -1,0 +1,198 @@
+---
+/**
+ * HeroDemo — pure-CSS "before/after" erase proof for the hero.
+ *
+ * Zero images: the scene is built from CSS gradients (sunset beach), and the
+ * "photobomber" silhouette lives ONLY in the clipped before-layer. As the
+ * divider wipes left↔right, the photobomber appears (before) and vanishes
+ * (after) — an instantly-legible "we erased it" demo. Theme-adaptive, sub-2KB,
+ * prefers-reduced-motion shows a static side-by-side split.
+ *
+ * Sync trick: the before-layer's clip-path inset and the divider's `left`
+ * share identical keyframe percentages + timing, so they move as one.
+ */
+---
+
+<div class="hero-demo" role="img" aria-label="Before and after: a photobomber erased from a beach photo, leaving the rest of the image untouched.">
+  {/* Base layer = the clean "after" scene (always full width) */}
+  <div class="scene" aria-hidden="true">
+    <div class="sun"></div>
+    <div class="sea"></div>
+    <div class="sand"></div>
+    <div class="bird b1"></div>
+    <div class="bird b2"></div>
+  </div>
+
+  {/* Before layer = ONLY the photobomber, clipped to the left of the divider */}
+  <div class="before-layer" aria-hidden="true">
+    <div class="bomber">
+      <span class="head"></span>
+      <span class="body"></span>
+    </div>
+  </div>
+
+  {/* Wiping divider + handle */}
+  <div class="divider" aria-hidden="true">
+    <span class="handle">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m9 18-6-6 6-6"></path><path d="m15 6 6 6-6 6"></path>
+      </svg>
+    </span>
+  </div>
+
+  {/* Labels */}
+  <span class="tag tag-before">Before</span>
+  <span class="tag tag-after">After</span>
+</div>
+
+<style>
+  .hero-demo {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 0.875rem;
+    border: 1px solid var(--color-border);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.06),
+      0 18px 40px -16px rgba(124, 58, 237, 0.35);
+    isolation: isolate;
+  }
+
+  /* ---- The clean scene (sunset beach) ---- */
+  .scene {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      #3b1d72 0%,
+      #7c3aed 26%,
+      #c45fb0 48%,
+      #f59e0b 64%,
+      #fbbf24 72%
+    );
+  }
+  .sun {
+    position: absolute;
+    left: 50%;
+    top: 47%;
+    width: 22%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff7e6 0%, #fde68a 55%, rgba(253, 224, 138, 0) 72%);
+  }
+  .sea {
+    position: absolute;
+    inset: 64% 0 28% 0;
+    background: linear-gradient(180deg, #b45cae 0%, #6d3aa8 100%);
+    opacity: 0.92;
+  }
+  .sand {
+    position: absolute;
+    inset: 72% 0 0 0;
+    background: linear-gradient(180deg, #e8c99a 0%, #cda06a 100%);
+  }
+  .bird {
+    position: absolute;
+    width: 14px;
+    height: 6px;
+    border-top: 2px solid rgba(20, 10, 30, 0.55);
+    border-radius: 50%;
+    clip-path: polygon(0 0, 50% 100%, 100% 0);
+  }
+  .bird.b1 { left: 22%; top: 20%; transform: scale(0.9); }
+  .bird.b2 { left: 30%; top: 27%; transform: scale(0.6); }
+
+  /* ---- The photobomber (before-only) ---- */
+  .before-layer {
+    position: absolute;
+    inset: 0;
+    /* clip reveals the LEFT portion; animated in sync with the divider */
+    clip-path: inset(0 18% 0 0);
+    animation: wipe 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .bomber {
+    position: absolute;
+    left: 53%;
+    bottom: 8%;
+    width: 9%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+  }
+  .bomber .head {
+    width: 58%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #1c1326;
+  }
+  .bomber .body {
+    margin-top: 6%;
+    width: 100%;
+    height: 0;
+    padding-bottom: 130%;
+    border-radius: 42% 42% 30% 30%;
+    background: #1c1326;
+  }
+
+  /* ---- Divider + handle ---- */
+  .divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 82%;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 10px rgba(124, 58, 237, 0.6);
+    animation: divide 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  .handle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #fff;
+    color: #7c3aed;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ---- Labels ---- */
+  .tag {
+    position: absolute;
+    top: 0.625rem;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border-radius: 999px;
+    color: #fff;
+    background: rgba(20, 10, 30, 0.55);
+    backdrop-filter: blur(4px);
+  }
+  .tag-before { left: 0.625rem; }
+  .tag-after { right: 0.625rem; background: rgba(124, 58, 237, 0.85); }
+
+  @keyframes wipe {
+    0%, 14% { clip-path: inset(0 18% 0 0); }
+    50%, 64% { clip-path: inset(0 82% 0 0); }
+    100% { clip-path: inset(0 18% 0 0); }
+  }
+  @keyframes divide {
+    0%, 14% { left: 82%; }
+    50%, 64% { left: 18%; }
+    100% { left: 82%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .before-layer { animation: none; clip-path: inset(0 50% 0 0); }
+    .divider { animation: none; left: 50%; }
+  }
+</style>

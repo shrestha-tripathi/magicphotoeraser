@@ -1,0 +1,256 @@
+---
+/**
+ * MechanismAnimation — visualizes the crop-bbox inpainting insight, which is
+ * THE technical moat: we only process the region you brushed, then composite
+ * it back into the full-resolution original. That's why HD stays sharp.
+ *
+ * 3-phase loop (pure CSS, no JS, theme-adaptive, reduced-motion safe):
+ *   1. Brush — a stroke paints over the unwanted object.
+ *   2. Crop — a bbox snaps around the stroke; the rest of the photo dims to
+ *      show "untouched". The crop lifts out and the AI fills it.
+ *   3. Composite — the patch drops back in, the photo un-dims, object gone.
+ *
+ * Caption ticker narrates each phase (1-of-3 visible at a time).
+ */
+---
+
+<div class="mech-wrap" aria-label="How it works: brush the object, we crop only that region, the AI fills it, and we composite it back into your full-resolution photo so the rest stays sharp.">
+  <div class="mech-stage" role="img">
+    {/* The photo (a simple framed scene). Dims during the crop/fill phase. */}
+    <div class="photo">
+      <div class="ph-sky"></div>
+      <div class="ph-ground"></div>
+      {/* The unwanted object sitting in the scene */}
+      <div class="object"></div>
+      {/* Brush stroke that paints over the object */}
+      <div class="brush"></div>
+      {/* The crop bbox that snaps around the brushed region */}
+      <div class="bbox"></div>
+      {/* Sharp-untouched badge that appears during the dim phase */}
+    </div>
+
+    {/* The lifted-out crop patch being processed by the AI, then dropped back */}
+    <div class="patch">
+      <div class="patch-fill"></div>
+      <span class="patch-spark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path>
+        </svg>
+      </span>
+    </div>
+
+    <span class="sharp-badge">Rest of photo untouched · still sharp</span>
+  </div>
+
+  <div class="captions">
+    <span class="cap cap-0"><b>1.</b> Brush over what you want gone</span>
+    <span class="cap cap-1"><b>2.</b> We crop only that region — and run the AI on it</span>
+    <span class="cap cap-2"><b>3.</b> Drop it back into your full-res photo, sharp</span>
+  </div>
+</div>
+
+<style>
+  .mech-wrap {
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+    color: var(--color-fg-muted);
+  }
+  .mech-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: 0.875rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-subtle);
+    overflow: hidden;
+  }
+
+  /* ---- The photo ---- */
+  .photo {
+    position: absolute;
+    inset: 9%;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    animation: photo-dim 6s ease-in-out infinite;
+  }
+  .ph-sky {
+    position: absolute;
+    inset: 0 0 38% 0;
+    background: linear-gradient(180deg, #60a5fa 0%, #bfdbfe 100%);
+  }
+  .ph-ground {
+    position: absolute;
+    inset: 62% 0 0 0;
+    background: linear-gradient(180deg, #86efac 0%, #4ade80 100%);
+  }
+  .object {
+    position: absolute;
+    left: 58%;
+    top: 34%;
+    width: 13%;
+    height: 42%;
+    border-radius: 30% 30% 12% 12%;
+    background: #b91c1c;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    animation: object-erase 6s ease-in-out infinite;
+  }
+
+  /* ---- Brush stroke ---- */
+  .brush {
+    position: absolute;
+    left: 55%;
+    top: 30%;
+    width: 19%;
+    height: 50%;
+    border-radius: 999px;
+    background: rgba(124, 58, 237, 0.55);
+    opacity: 0;
+    transform: scale(0.4);
+    transform-origin: left center;
+    animation: brush-paint 6s ease-in-out infinite;
+  }
+
+  /* ---- Crop bbox ---- */
+  .bbox {
+    position: absolute;
+    left: 53%;
+    top: 26%;
+    width: 24%;
+    height: 58%;
+    border: 2px dashed var(--color-accent);
+    border-radius: 0.25rem;
+    opacity: 0;
+    animation: bbox-snap 6s ease-in-out infinite;
+  }
+
+  /* ---- The lifted crop patch ---- */
+  .patch {
+    position: absolute;
+    left: 50%;
+    top: 12%;
+    width: 18%;
+    height: 30%;
+    border-radius: 0.4rem;
+    border: 2px solid var(--color-accent);
+    background: var(--color-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-accent);
+    opacity: 0;
+    box-shadow: 0 8px 20px -6px rgba(124, 58, 237, 0.5);
+    animation: patch-lift 6s ease-in-out infinite;
+  }
+  .patch-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: 0.28rem;
+    background: linear-gradient(135deg, #86efac 0%, #4ade80 100%);
+    opacity: 0;
+    animation: patch-fill 6s ease-in-out infinite;
+  }
+  .patch-spark {
+    position: relative;
+    z-index: 2;
+    animation: spark-spin 6s ease-in-out infinite;
+  }
+
+  /* ---- Sharp badge ---- */
+  .sharp-badge {
+    position: absolute;
+    right: 7%;
+    bottom: 12%;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    border-radius: 999px;
+    color: var(--color-accent-fg);
+    background: var(--color-accent);
+    opacity: 0;
+    animation: badge-show 6s ease-in-out infinite;
+  }
+
+  /* ---- Captions ---- */
+  .captions {
+    position: relative;
+    height: 1.5rem;
+    margin-top: 0.85rem;
+    text-align: center;
+    font-size: 0.85rem;
+  }
+  .cap {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    animation: cap-cycle 6s ease-in-out infinite;
+  }
+  .cap b { color: var(--color-accent); }
+  .cap-0 { animation-delay: 0s; }
+  .cap-1 { animation-delay: -4s; }
+  .cap-2 { animation-delay: -2s; }
+
+  /* ---------- Keyframes ---------- */
+  @keyframes brush-paint {
+    0%, 4% { opacity: 0; transform: scaleX(0.1); }
+    14% { opacity: 1; transform: scaleX(1); }
+    30% { opacity: 1; transform: scaleX(1); }
+    38%, 100% { opacity: 0; }
+  }
+  @keyframes bbox-snap {
+    0%, 16% { opacity: 0; transform: scale(1.15); }
+    24% { opacity: 1; transform: scale(1); }
+    62% { opacity: 1; transform: scale(1); }
+    70%, 100% { opacity: 0; }
+  }
+  @keyframes patch-lift {
+    0%, 24% { opacity: 0; top: 26%; transform: scale(0.6); }
+    34% { opacity: 1; top: 12%; transform: scale(1); }
+    58% { opacity: 1; top: 12%; transform: scale(1); }
+    70% { opacity: 1; top: 30%; transform: scale(0.7); }
+    76%, 100% { opacity: 0; }
+  }
+  @keyframes patch-fill {
+    0%, 38% { opacity: 0; }
+    52% { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  @keyframes spark-spin {
+    0%, 36% { opacity: 1; transform: rotate(0deg) scale(1); }
+    50% { opacity: 0; transform: rotate(180deg) scale(0.5); }
+    100% { opacity: 0; }
+  }
+  @keyframes object-erase {
+    0%, 60% { opacity: 1; }
+    72%, 100% { opacity: 0; }
+  }
+  @keyframes photo-dim {
+    0%, 24% { filter: none; }
+    34% { filter: brightness(0.6) saturate(0.7); }
+    62% { filter: brightness(0.6) saturate(0.7); }
+    74%, 100% { filter: none; }
+  }
+  @keyframes badge-show {
+    0%, 30% { opacity: 0; transform: translateY(4px); }
+    40% { opacity: 1; transform: translateY(0); }
+    62% { opacity: 1; transform: translateY(0); }
+    70%, 100% { opacity: 0; }
+  }
+  @keyframes cap-cycle {
+    0% { opacity: 0; transform: translateY(4px); }
+    4% { opacity: 1; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(0); }
+    35% { opacity: 0; transform: translateY(-4px); }
+    100% { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .photo, .object, .brush, .bbox, .patch, .patch-fill,
+    .patch-spark, .sharp-badge, .cap { animation: none !important; }
+    .object { opacity: 0; }
+    .bbox { opacity: 1; }
+    .sharp-badge { opacity: 1; }
+    .cap-2 { opacity: 1; }
+  }
+</style>

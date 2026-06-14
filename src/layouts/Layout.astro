@@ -1,7 +1,13 @@
 ---
 /**
  * Base layout — owns <head>: title, meta description, Open Graph, canonical,
- * favicon, theme-color, and the PROD-gated Google Analytics snippet.
+ * favicon, theme-color, layered JSON-LD, and the PROD-gated GA snippet.
+ *
+ * JSON-LD strategy (see seo-jsonld-static-sites skill):
+ *   - Sitewide Organization + WebSite schemas emit on EVERY page.
+ *   - Per-route schemas (WebApplication, FAQPage, BreadcrumbList) come in via
+ *     the `jsonLd` prop and are appended. Always injected with set:html so the
+ *     JSON isn't HTML-escaped (escaped JSON is invalid → Google ignores it).
  *
  * All brand strings come from src/site.config.ts (never hardcode the brand).
  */
@@ -15,15 +21,45 @@ interface Props {
   description?: string;
   /** Path-only canonical (e.g. "/faq"); defaults to the current URL path. */
   path?: string;
+  /** Per-page JSON-LD blocks (WebApplication, FAQPage, …); appended to sitewide. */
+  jsonLd?: Record<string, unknown>[];
+  /** When true, emit <meta name="robots" content="noindex"> (thin/app pages). */
+  noindex?: boolean;
 }
 
-const { title, description, path } = Astro.props;
+const { title, description, path, jsonLd = [], noindex = false } = Astro.props;
 
 const pageTitle = title ? `${title} · ${site.name}` : `${site.name} — ${site.tagline}`;
 const pageDescription = description ?? site.description;
 const canonicalPath = path ?? Astro.url.pathname;
 const canonicalURL = new URL(canonicalPath, site.url).href;
 const ogImage = new URL("/og-image.png", site.url).href;
+const logoUrl = new URL("/icon-512.png", site.url).href;
+
+// Sitewide Organization — brand panel + knowledge-graph stitching.
+const orgSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": `${site.url}/#organization`,
+  name: site.name,
+  url: site.url,
+  logo: logoUrl,
+  description: site.description,
+};
+
+// Sitewide WebSite — sitelinks search-box eligibility + identity.
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": `${site.url}/#website`,
+  url: site.url,
+  name: site.name,
+  description: site.description,
+  publisher: { "@id": `${site.url}/#organization` },
+  inLanguage: "en",
+};
+
+const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
 ---
 
 <!doctype html>
@@ -36,6 +72,7 @@ const ogImage = new URL("/og-image.png", site.url).href;
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
     <link rel="canonical" href={canonicalURL} />
+    {noindex && <meta name="robots" content="noindex" />}
 
     {/* Open Graph / Twitter */}
     <meta property="og:type" content="website" />
@@ -53,6 +90,13 @@ const ogImage = new URL("/og-image.png", site.url).href;
     <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    {/* Layered JSON-LD — sitewide Org + WebSite, plus any per-page schemas. */}
+    {
+      allJsonLd.map((schema) => (
+        <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
+      ))
+    }
 
     {/*
       Google Analytics 4 — only injected in production builds AND only when a
