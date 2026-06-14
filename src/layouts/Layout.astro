@@ -1,0 +1,78 @@
+---
+/**
+ * Base layout — owns <head>: title, meta description, Open Graph, canonical,
+ * favicon, theme-color, and the PROD-gated Google Analytics snippet.
+ *
+ * All brand strings come from src/site.config.ts (never hardcode the brand).
+ */
+import { site } from "../site.config";
+import "../styles/global.css";
+
+interface Props {
+  /** Page-specific title; composed as "Title · Brand". Omit on the homepage. */
+  title?: string;
+  /** Page-specific meta description; falls back to the site description. */
+  description?: string;
+  /** Path-only canonical (e.g. "/faq"); defaults to the current URL path. */
+  path?: string;
+}
+
+const { title, description, path } = Astro.props;
+
+const pageTitle = title ? `${title} · ${site.name}` : `${site.name} — ${site.tagline}`;
+const pageDescription = description ?? site.description;
+const canonicalPath = path ?? Astro.url.pathname;
+const canonicalURL = new URL(canonicalPath, site.url).href;
+const ogImage = new URL("/og-image.png", site.url).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href={canonicalURL} />
+
+    {/* Open Graph / Twitter */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <meta name="theme-color" content="#7c3aed" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    {/*
+      Google Analytics 4 — only injected in production builds AND only when a
+      measurement ID is configured. site.gaId is intentionally EMPTY for now,
+      so this block emits nothing until PUBLIC_GA_MEASUREMENT_ID is set.
+      Gating on import.meta.env.PROD keeps localhost dev out of the property.
+    */}
+    {import.meta.env.PROD && site.gaId && (
+      <>
+        <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${site.gaId}`}></script>
+        <script is:inline define:vars={{ gaId: site.gaId }}>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', gaId);
+        </script>
+      </>
+    )}
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

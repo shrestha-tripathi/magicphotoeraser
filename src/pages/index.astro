@@ -1,0 +1,43 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site } from "../site.config";
+---
+
+<Layout>
+  <main class="mx-auto flex min-h-dvh max-w-3xl flex-col items-center justify-center gap-8 px-6 py-20 text-center">
+    <span
+      class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3 py-1 text-sm text-[var(--color-fg-muted)]"
+    >
+      <span class="size-2 rounded-full bg-[var(--color-accent)]"></span>
+      100% in your browser · nothing uploaded
+    </span>
+
+    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+      {site.name}
+    </h1>
+
+    <p class="max-w-xl text-lg text-[var(--color-fg-muted)]">
+      {site.tagline} Remove unwanted objects, people, text, or watermarks from
+      any photo — your image never leaves your device.
+    </p>
+
+    <div class="flex flex-wrap items-center justify-center gap-3">
+      <a
+        href="/app"
+        class="rounded-lg bg-[var(--color-accent)] px-5 py-2.5 font-semibold text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
+      >
+        Open the eraser
+      </a>
+      <a
+        href="/how-it-works"
+        class="rounded-lg border border-[var(--color-border)] px-5 py-2.5 font-semibold text-[var(--color-fg)] transition-colors hover:bg-[var(--color-bg-muted)]"
+      >
+        How it works
+      </a>
+    </div>
+
+    <p class="text-sm text-[var(--color-fg-subtle)]">
+      Free forever. No signup. No watermark.
+    </p>
+  </main>
+</Layout>

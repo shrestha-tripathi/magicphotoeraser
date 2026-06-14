@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/*
+  MagicPhotoEraser design tokens — Tailwind v4 (@theme), NO tailwind.config.js.
+  Both light + dark themes are mandatory. Dark follows prefers-color-scheme.
+
+  Brand accent = a confident violet ("magic") with a warm fallback.
+  Surfaces stay near-neutral so photos (the real content) pop.
+*/
+@theme {
+  --color-bg: #ffffff;
+  --color-bg-subtle: #f7f7f8;
+  --color-bg-muted: #eeeef1;
+  --color-fg: #0a0a0a;
+  --color-fg-muted: #52525b;
+  --color-fg-subtle: #71717a;
+  --color-border: #e4e4e7;
+
+  --color-accent: #7c3aed;        /* violet-600 */
+  --color-accent-strong: #6d28d9; /* violet-700 */
+  --color-accent-fg: #ffffff;
+
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: #0a0a0a;
+    --color-bg-subtle: #141416;
+    --color-bg-muted: #1f1f23;
+    --color-fg: #fafafa;
+    --color-fg-muted: #a1a1aa;
+    --color-fg-subtle: #8b8b93;
+    --color-border: #2a2a30;
+
+    --color-accent: #a78bfa;        /* violet-400 — lifts on dark */
+    --color-accent-strong: #c4b5fd; /* violet-300 */
+    --color-accent-fg: #1a1025;
+  }
+}
+
+html {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}

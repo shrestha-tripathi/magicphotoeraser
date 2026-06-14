@@ -1,0 +1,18 @@
+# Cloudflare Pages headers for MagicPhotoEraser.
+#
+# 1. Cross-Origin Isolation (COOP/COEP) — REQUIRED for SharedArrayBuffer, which
+#    the in-browser AI runtime (onnxruntime-web threaded WASM) needs for the
+#    eraser. Cloudflare Pages serves these natively, so we do NOT need the
+#    coi-serviceworker hack that GitHub Pages requires.
+# 2. *.pages.dev preview deployments are marked noindex so only the real domain
+#    gets indexed (avoids duplicate-content SEO dilution).
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Preview deployments: keep them out of the index.
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
