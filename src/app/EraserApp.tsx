@@ -92,6 +92,22 @@ export default function EraserApp() {
   previewMaskRef.current = previewMask;
   const selReqRef = useRef(0);
 
+  // --- 3-mask cycling (commit 12) ---
+  // A single click yields 1–3 viable candidate masks at different granularities
+  // (e.g. a jacket → the person → the whole group). We hold them all and let the
+  // user cycle with the "Try another shape" chip or [ / ] keys; the active index
+  // drives which one is shown as the preview. Cycling is a pure index swap — NO
+  // extra model run. Only offered at EXACTLY ONE point: once the user starts +/-
+  // refining (>1 point) the refined mask is authoritative, so we collapse to a
+  // single candidate and hide the chip (empirically the multi-point candidates are
+  // muddy — see the c12 probe). Any NEW point re-decodes and resets the index to 0.
+  const [candidateMasks, setCandidateMasks] = useState<Uint8Array[]>([]);
+  const [cycleIndex, setCycleIndex] = useState(0);
+  const candidateMasksRef = useRef<Uint8Array[]>([]);
+  candidateMasksRef.current = candidateMasks;
+  const cycleIndexRef = useRef(0);
+  cycleIndexRef.current = cycleIndex;
+
   // --- Compare / download state (commit 8) ---
   // `hasEdited` is true once at least one erase has happened, which unlocks the
   // Compare slider, Download, and Revert controls. `compareMode` swaps the brush
@@ -123,6 +139,8 @@ export default function EraserApp() {
     setSelPoints([]);
     setPreviewMask(null);
     setPreviewRev((r) => r + 1);
+    setCandidateMasks([]);
+    setCycleIndex(0);
     if (bitmapRef.current) {
       bitmapRef.current.close();
       bitmapRef.current = null;
@@ -198,6 +216,8 @@ export default function EraserApp() {
     setSelPoints([]);
     setPreviewMask(null);
     setPreviewRev((r) => r + 1);
+    setCandidateMasks([]);
+    setCycleIndex(0);
   }, [image, mask]);
 
   // --- Discard the pending selection without committing (the "Clear selection"
@@ -207,6 +227,8 @@ export default function EraserApp() {
     setSelPoints([]);
     setPreviewMask(null);
     setPreviewRev((r) => r + 1);
+    setCandidateMasks([]);
+    setCycleIndex(0);
     setSegmenting(false);
     setSegStatus(null);
   }, []);
@@ -299,11 +321,17 @@ export default function EraserApp() {
           );
           samBitmapRef.current = image.bitmap;
         }
-        const maskBits = await samContextRef.current.segment(points);
+        const { masks: candidates } = await samContextRef.current.segment(points);
         // Latest-click-wins: if a newer click already superseded this request (or
         // the selection was cleared / image changed), drop this stale result.
         if (reqId !== selReqRef.current) return;
-        setPreviewMask(maskBits);
+        // Store all candidates and show the default (index 0). A NEW point always
+        // resets the cycle to 0; the "Try another shape" chip lets the user cycle
+        // the rest (only meaningful at a single point — candidates.length is 1 when
+        // refining, so the chip auto-hides).
+        setCandidateMasks(candidates);
+        setCycleIndex(0);
+        setPreviewMask(candidates[0]);
         setPreviewRev((r) => r + 1);
       } catch (e) {
         console.error("[segment] failed", e);
@@ -323,6 +351,42 @@ export default function EraserApp() {
     },
     [image, erasing],
   );
+
+  // --- Cycle to another candidate mask (commit 12). Pure index swap into the
+  // already-decoded candidates — no model run. `dir` is +1 (next) or -1 (prev),
+  // wrapping around. No-op unless there are ≥2 candidates (i.e. a single click
+  // that produced multiple distinct granularities). ---
+  const cycleMask = useCallback(
+    (dir: number) => {
+      const cands = candidateMasksRef.current;
+      if (cands.length < 2) return;
+      const next = (cycleIndexRef.current + dir + cands.length) % cands.length;
+      setCycleIndex(next);
+      setPreviewMask(cands[next]);
+      setPreviewRev((r) => r + 1);
+    },
+    [],
+  );
+
+  // [ / ] cycle the candidate masks while a multi-candidate selection is showing.
+  useEffect(() => {
+    if (candidateMasks.length < 2) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Ignore when typing in a field (none today, but future-proof) or modified.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "]") {
+        e.preventDefault();
+        cycleMask(1);
+      } else if (e.key === "[") {
+        e.preventDefault();
+        cycleMask(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [candidateMasks.length, cycleMask]);
 
   // --- Revert to the pristine original (3-include). Frees the current result
   // unless it IS the original, points the current bitmap back at the original. ---
@@ -545,10 +609,30 @@ export default function EraserApp() {
                       Clear selection
                     </button>
                   ) : null}
+                  {/* 3-mask cycling (c12): only when a single click yielded ≥2
+                      distinct granularities. Cycling is a pure preview swap. */}
+                  {candidateMasks.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => cycleMask(1)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-2.5 py-1 text-sm font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20"
+                      title="Show a different shape for this object — or press ] / ["
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 2v6h6M21 12a9 9 0 0 0-15-6.7L3 8M21 22v-6h-6M3 12a9 9 0 0 0 15 6.7l3-2.7" />
+                      </svg>
+                      Try another shape
+                      <span className="tabular-nums opacity-70">
+                        {cycleIndex + 1}/{candidateMasks.length}
+                      </span>
+                    </button>
+                  ) : null}
                   <p className="text-xs text-[var(--color-fg-subtle)]">
                     {selPoints.length === 0
                       ? "Click an object to select it — add or remove points to refine."
-                      : `${selPoints.length} point${selPoints.length === 1 ? "" : "s"} · refine, then Erase. Brush still works too.`}
+                      : candidateMasks.length > 1
+                        ? `${selPoints.length} point · refine, then Erase — or try another shape (] / [).`
+                        : `${selPoints.length} point${selPoints.length === 1 ? "" : "s"} · refine, then Erase. Brush still works too.`}
                   </p>
                 </div>
               ) : (

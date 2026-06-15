@@ -187,6 +187,60 @@ export interface SamPoint {
   positive: boolean;
 }
 
+// --- 3-mask cycling (c12) -------------------------------------------------
+// SAM returns 3 candidate masks per decode (roughly: whole-object / part /
+// sub-part). For a SINGLE click these are often genuinely distinct granularities,
+// and letting the user cycle them is the classic SAM-demo affordance. But two of
+// the three are frequently noise we must NOT offer:
+//   • a GREEDY "whole-scene" mask that bleeds to the image borders, and
+//   • a near-DUPLICATE of another candidate.
+// 🔑 EMPIRICALLY MEASURED (python probe before coding): the greedy mask rings the
+// image border (border-fraction ~0.48 vs ~0.0 for a clean object); distinct
+// candidates have pairwise IoU well under 0.9 while dups sit ~0.98. So we order by
+// IoU desc, drop greedy (high border coverage), drop dups, and fall back to the
+// plain argmax if (pathologically) everything looked greedy — never return empty.
+// order[0] reproduces the c11 single-point pick (and additionally drops the greedy
+// whole-scene mask in the latent edge case where it would have won raw argmax).
+const GREEDY_BORDER_FRAC = 0.3; // mask touching >30% of the border ring = scene bleed
+const DEDUP_IOU = 0.9; // two candidates more similar than this = duplicates
+
+function cycleOrder(masksLogits: Float32Array, iou: Float32Array, side: number): number[] {
+  const stride = side * side;
+  const bool: Uint8Array[] = [];
+  const border: number[] = [];
+  for (let k = 0; k < 3; k++) {
+    const sub = masksLogits.subarray(k * stride, (k + 1) * stride);
+    const b = new Uint8Array(stride);
+    for (let i = 0; i < stride; i++) b[i] = sub[i] > 0 ? 1 : 0;
+    bool.push(b);
+    // border-ring coverage: top+bottom rows + left+right cols (4·side cells).
+    let set = 0;
+    for (let x = 0; x < side; x++) set += b[x] + b[(side - 1) * side + x];
+    for (let y = 0; y < side; y++) set += b[y * side] + b[y * side + side - 1];
+    border.push(set / (4 * side));
+  }
+  const byIou = [0, 1, 2].sort((a, b) => iou[b] - iou[a]);
+  const iouBetween = (a: Uint8Array, b: Uint8Array) => {
+    let inter = 0,
+      uni = 0;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i],
+        y = b[i];
+      if (x | y) uni++;
+      if (x & y) inter++;
+    }
+    return uni ? inter / uni : 1;
+  };
+  const kept: number[] = [];
+  for (const k of byIou) {
+    if (border[k] > GREEDY_BORDER_FRAC) continue; // greedy whole-scene bleed
+    if (kept.some((j) => iouBetween(bool[k], bool[j]) > DEDUP_IOU)) continue; // dup
+    kept.push(k);
+  }
+  if (kept.length === 0) kept.push(byIou[0]); // never return nothing
+  return kept;
+}
+
 /**
  * A per-image SAM context: holds the encoder's two embedding tensors so repeated
  * clicks only pay the (cheap) decoder cost. Create once per loaded image; call
@@ -194,11 +248,23 @@ export interface SamPoint {
  * `dispose()` when the image changes.
  */
 export interface SamContext {
-  /** Run the decoder for the accumulated point set → source-res mask bits (1=object). */
-  segment(points: SamPoint[]): Promise<Uint8Array>;
+  /**
+   * Run the decoder for the accumulated point set. Returns ALL viable candidate
+   * masks (source-res, 1=object) already ordered for cycling: `masks[0]` is the
+   * default pick (== the c11 single-point choice), `masks[1..]` are alternative
+   * granularities the user can cycle to. Length is 1–3 (greedy/dup candidates are
+   * filtered out). See `cycleOrder`.
+   */
+  segment(points: SamPoint[]): Promise<SegmentResult>;
   readonly geom: SamGeometry;
   readonly backend: Backend;
   dispose(): void;
+}
+
+/** The ordered candidate masks from one decode (see SamContext.segment). */
+export interface SegmentResult {
+  /** 1–3 source-res masks (1=object), ordered: [0]=default, rest=cycle alternatives. */
+  masks: Uint8Array[];
 }
 
 /**
@@ -239,11 +305,11 @@ export async function createSamContext(
 
   let disposed = false;
 
-  const segment = async (points: SamPoint[]): Promise<Uint8Array> => {
+  const segment = async (points: SamPoint[]): Promise<SegmentResult> => {
     if (disposed) throw new Error("SAM context disposed");
     if (points.length === 0) {
-      // No prompts → empty mask (caller treats as "nothing selected").
-      return new Uint8Array(srcW * srcH);
+      // No prompts → one empty mask (caller treats as "nothing selected").
+      return { masks: [new Uint8Array(srcW * srcH)] };
     }
 
     // Build the point/label arrays in SAM 1024-space. 🔑 EMPIRICALLY VERIFIED
@@ -281,17 +347,30 @@ export async function createSamContext(
     const masks = decOut.pred_masks.data as Float32Array; // [3,256,256] flattened
     const maskSide = 256;
     const stride = maskSide * maskSide;
-    // 🔑 EMPIRICALLY VERIFIED mask-index selection: pick the highest-IoU candidate,
-    // BUT exclude index 0 once there is more than one real point. idx 0 is SAM's
-    // greedy "whole scene" mask; on a refine it reports a misleadingly-high IoU on a
-    // noise-riddled mask (measured 40k-px garbage vs the correct 9k-px refined mask
-    // at idx 1). With a single point, idx 0 can legitimately be the whole object, so
-    // only narrow the candidates when refining.
-    const startIdx = points.length > 1 ? 1 : 0;
-    let best = startIdx;
-    for (let i = startIdx + 1; i < iou.length; i++) if (iou[i] > iou[best]) best = i;
-    const bestLogits = masks.subarray(best * stride, (best + 1) * stride);
-    return maskLogitsToSource(bestLogits as Float32Array, maskSide, geom);
+
+    if (points.length > 1) {
+      // 🔑 REFINING (multi-point): no cycling. The user's +/- points already
+      // express the intended shape, so we return the SINGLE best mask. EMPIRICALLY
+      // VERIFIED selection: pick the highest-IoU candidate but EXCLUDE index 0 —
+      // idx 0 is SAM's greedy "whole scene" mask, which on a refine reports a
+      // misleadingly-high IoU on a noise-riddled mask (measured 40k-px garbage vs
+      // the correct 9k-px refined mask at idx 1).
+      let best = 1;
+      for (let i = 2; i < iou.length; i++) if (iou[i] > iou[best]) best = i;
+      const bestLogits = masks.subarray(best * stride, (best + 1) * stride);
+      return { masks: [maskLogitsToSource(bestLogits as Float32Array, maskSide, geom)] };
+    }
+
+    // 🔑 SINGLE point: return the viable candidates ordered for cycling. order[0]
+    // is the default pick (greedy-scene + dup candidates filtered out, then IoU
+    // desc) and matches the c11 single-point choice; order[1..] are alternative
+    // granularities (e.g. click a face → cycle to the whole head → the whole body).
+    const order = cycleOrder(masks, iou, maskSide);
+    return {
+      masks: order.map((k) =>
+        maskLogitsToSource(masks.subarray(k * stride, (k + 1) * stride) as Float32Array, maskSide, geom),
+      ),
+    };
   };
 
   return {
