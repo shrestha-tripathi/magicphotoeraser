@@ -15,8 +15,11 @@
     "gen:assets": "node scripts/gen-icons.mjs && node scripts/gen-og-image.mjs"
   },
   "dependencies": {
+    "@astrojs/react": "^5.0.7",
     "@tailwindcss/vite": "4.3.0",
     "astro": "6.4.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "tailwindcss": "4.3.0"
   },
   "overrides": {
@@ -24,6 +27,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.35.1",
     "typescript": "^6.0.3"

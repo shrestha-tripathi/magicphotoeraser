@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@astrojs/react";
 
 // https://astro.build/config
 export default defineConfig({
@@ -13,6 +14,7 @@ export default defineConfig({
   // "Page with redirect" + "Alternate page with proper canonical tag". Also makes
   // the dev server match prod (default "ignore" accepts both, hiding the mismatch).
   trailingSlash: "always",
+  integrations: [react()],
   vite: {
     plugins: [tailwindcss()],
   },

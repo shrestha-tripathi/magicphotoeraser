@@ -64,3 +64,27 @@ body {
   margin: 0;
   min-height: 100dvh;
 }
+
+/*
+  Editor canvas backdrop — a subtle checkerboard so transparent regions of a
+  PNG read as "see-through" rather than blending into the page background.
+  Used by the /app ImageStage canvas. Both themes tuned for low contrast so it
+  never competes with the user's photo.
+*/
+.mpe-checkerboard {
+  --mpe-check: #e9e9ee;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, var(--mpe-check) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--mpe-check) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--mpe-check) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--mpe-check) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+@media (prefers-color-scheme: dark) {
+  .mpe-checkerboard {
+    --mpe-check: #1f1f23;
+    background-color: #161618;
+  }
+}
