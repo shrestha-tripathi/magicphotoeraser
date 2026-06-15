@@ -11,7 +11,7 @@
  *
  * All brand strings come from src/site.config.ts (never hardcode the brand).
  */
-import { site } from "../site.config";
+import { site, absoluteUrl } from "../site.config";
 import "../styles/global.css";
 
 interface Props {
@@ -32,7 +32,7 @@ const { title, description, path, jsonLd = [], noindex = false } = Astro.props;
 const pageTitle = title ? `${title} · ${site.name}` : `${site.name} — ${site.tagline}`;
 const pageDescription = description ?? site.description;
 const canonicalPath = path ?? Astro.url.pathname;
-const canonicalURL = new URL(canonicalPath, site.url).href;
+const canonicalURL = absoluteUrl(canonicalPath);
 const ogImage = new URL("/og-image.png", site.url).href;
 const logoUrl = new URL("/icon-512.png", site.url).href;
 

@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
 import Prose from "../components/Prose.astro";
-import { site } from "../site.config";
+import { site, absoluteUrl } from "../site.config";
 
 const title = "Terms & Conditions";
 const description = `${site.name} terms and conditions — the simple terms for using a free, browser-based photo eraser. Acceptable use, disclaimers, and your responsibilities.`;
@@ -11,9 +11,9 @@ const description = `${site.name} terms and conditions — the simple terms for 
 const termsSchema = {
   "@context": "https://schema.org",
   "@type": "WebPage",
-  "@id": `${site.url}/terms`,
+  "@id": absoluteUrl("/terms"),
   name: `${site.name} Terms & Conditions`,
-  url: `${site.url}/terms`,
+  url: absoluteUrl("/terms"),
   description,
   isPartOf: { "@id": `${site.url}/#website` },
 };
@@ -22,8 +22,8 @@ const breadcrumbSchema = {
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
   itemListElement: [
-    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
-    { "@type": "ListItem", position: 2, name: "Terms & Conditions", item: `${site.url}/terms` },
+    { "@type": "ListItem", position: 1, name: "Home", item: absoluteUrl("/") },
+    { "@type": "ListItem", position: 2, name: "Terms & Conditions", item: absoluteUrl("/terms") },
   ],
 };
 
@@ -146,7 +146,7 @@ const lastUpdated = new Date().toLocaleDateString("en-US", {
         <p>
           Questions about these Terms? Email
           <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. See also
-          our <a href="/privacy">Privacy Policy</a>.
+          our <a href="/privacy/">Privacy Policy</a>.
         </p>
       </Prose>
     </div>

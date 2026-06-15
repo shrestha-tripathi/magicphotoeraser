@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { site } from "../site.config";
+import { absoluteUrl } from "../site.config";
 
 /**
  * Dynamic sitemap.xml — single source of truth for indexable routes.
@@ -29,13 +29,12 @@ const routes: Route[] = [
 ];
 
 export const GET: APIRoute = () => {
-  const base = site.url.replace(/\/$/, "");
   const lastmod = new Date().toISOString().slice(0, 10);
 
   const urls = routes
     .map(
       (r) => `  <url>
-    <loc>${base}${r.path}</loc>
+    <loc>${absoluteUrl(r.path)}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>${r.changefreq}</changefreq>
     <priority>${r.priority}</priority>

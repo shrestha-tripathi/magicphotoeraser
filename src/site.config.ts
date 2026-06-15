@@ -58,3 +58,41 @@ export const site = {
 } as const;
 
 export type SiteConfig = typeof site;
+
+/**
+ * Append a trailing slash to a path so it matches what Cloudflare Pages serves
+ * (CF 308-redirects /foo -> /foo/ and returns 200 only at the slash form).
+ *
+ * Leaves alone:
+ *   - the bare root ("" or "/")  -> "/" (never "//")
+ *   - query/hash suffixes        -> slash goes before "?"/"#", not after
+ *   - real files (…/sitemap.xml) -> a last segment containing "." is untouched
+ *
+ * Use this for every absolute URL WE emit (canonical, OG, sitemap <loc>,
+ * breadcrumb JSON-LD items) so the sitemap/breadcrumb never disagree with the
+ * page canonical. Without it Google logs "Page with redirect" + "Alternate
+ * page with proper canonical tag". (See astro-cloudflare-trailing-slash-gsc.)
+ */
+export const withTrailingSlash = (path: string): string => {
+  const [base, ...rest] = path.split(/(?=[?#])/);
+  const suffix = rest.join("");
+  if (base === "" || base === "/") return `/${suffix}`;
+  const lastSeg = base.split("/").pop() ?? "";
+  if (lastSeg.includes(".")) return `${base}${suffix}`; // /sitemap.xml, /og.png
+  return base.endsWith("/") ? `${base}${suffix}` : `${base}/${suffix}`;
+};
+
+/**
+ * Build an absolute, trailing-slash-normalized URL from a path-only input.
+ * `absoluteUrl("/faq")` -> "https://magicphotoeraser.com/faq/". The single
+ * source of truth for canonical / OG / sitemap / breadcrumb absolute URLs.
+ *
+ * NOTE: this is for real page URLs only. Schema.org `@id` graph anchors that
+ * carry a "#fragment" (e.g. `${site.url}/#organization`) must keep their exact
+ * raw form for node-stitching and should NOT be routed through here.
+ */
+export const absoluteUrl = (path: string): string => {
+  const origin = site.url.replace(/\/$/, "");
+  const clean = path.startsWith("/") ? path : `/${path}`;
+  return `${origin}${withTrailingSlash(clean)}`;
+};
