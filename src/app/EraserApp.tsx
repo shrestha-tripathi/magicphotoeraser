@@ -8,6 +8,10 @@ import {
 import CanvasEditor from "./CanvasEditor";
 import BrushToolbar from "./BrushToolbar";
 import { useBrushMask } from "./useBrushMask";
+// Type-only import: erased at build time, so the heavy onnxruntime chunk it lives
+// next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
+// via dynamic import() inside onErase, on the user's first erase.
+import type { InpaintStatus } from "./inpaint/runInpaint";
 
 /**
  * EraserApp — the /app editor island (client:only="react").
@@ -38,6 +42,14 @@ export default function EraserApp() {
 
   // Brush mask lives at SOURCE resolution; recreated when the image changes.
   const mask = useBrushMask(image?.width ?? 0, image?.height ?? 0);
+
+  // --- Erase (on-device inpaint) state ---
+  // `erasing` gates the UI while the model downloads + runs; `eraseStatus`
+  // drives the progress overlay (download fraction → running). `eraseError`
+  // surfaces a friendly message if the runtime/model fails.
+  const [erasing, setErasing] = useState(false);
+  const [eraseStatus, setEraseStatus] = useState<InpaintStatus | null>(null);
+  const [eraseError, setEraseError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Hold the live bitmap in a ref too, so cleanup always frees the latest even
@@ -90,8 +102,41 @@ export default function EraserApp() {
     releaseImage();
     setImage(null);
     setError(null);
+    setEraseError(null);
     setPhase("empty");
   }, [releaseImage]);
+
+  // --- Erase: run the on-device inpainter on the painted mask (Decision 2A:
+  // result replaces the canvas in place so the user can keep erasing more) ---
+  const onErase = useCallback(async () => {
+    if (!image || !mask.maskCanvas || !mask.hasMask || erasing) return;
+    setEraseError(null);
+    setErasing(true);
+    setEraseStatus({ phase: "download", progress: 0 });
+    try {
+      // Lazy-load the runtime (+ onnxruntime-web chunk) only now, on first erase.
+      const { inpaint } = await import("./inpaint/runInpaint");
+      const { bitmap: result } = await inpaint(image.bitmap, mask.maskCanvas, (s) =>
+        setEraseStatus(s),
+      );
+      // 2A — swap the source bitmap in place. Same W×H, so the mask hook is NOT
+      // recreated; we just clear the strokes so the next erase starts clean.
+      const prev = bitmapRef.current;
+      bitmapRef.current = result;
+      setImage((img) => (img ? { ...img, bitmap: result } : img));
+      mask.clear();
+      // Free the bitmap we just replaced (after state has the new one).
+      if (prev && prev !== result) prev.close();
+    } catch (e) {
+      console.error("[erase] failed", e);
+      setEraseError(
+        "Couldn’t erase that — your device may not support on-device AI, or the model failed to load. Please try again.",
+      );
+    } finally {
+      setErasing(false);
+      setEraseStatus(null);
+    }
+  }, [image, mask, erasing]);
 
   // --- Global paste (Ctrl/Cmd+V a screenshot anywhere on the page) ---
   useEffect(() => {
@@ -209,6 +254,20 @@ export default function EraserApp() {
             <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
+                onClick={onErase}
+                disabled={!mask.hasMask || erasing}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-1.5 font-semibold text-[var(--color-accent-fg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                title={mask.hasMask ? "Erase the selected area" : "Brush over something first"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                  <path d="M22 21H7" />
+                  <path d="m5 11 9 9" />
+                </svg>
+                {erasing ? "Erasing…" : "Erase"}
+              </button>
+              <button
+                type="button"
                 onClick={openPicker}
                 className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg)] transition-colors hover:bg-[var(--color-bg-muted)]"
               >
@@ -253,6 +312,62 @@ export default function EraserApp() {
               style={{ backgroundColor: "color-mix(in srgb, var(--color-bg) 80%, transparent)" }}
             >
               <p className="text-lg font-semibold text-[var(--color-accent)]">Drop to open</p>
+            </div>
+          </div>
+        )}
+
+        {/* Erase progress overlay (covers the stage while model downloads/runs). */}
+        {erasing && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[2px]"
+            style={{ backgroundColor: "color-mix(in srgb, var(--color-bg) 70%, transparent)" }}
+          >
+            <div className="w-full max-w-xs rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-5 text-center shadow-xl">
+              <Spinner />
+              <p className="mt-3 font-medium text-[var(--color-fg)]">
+                {eraseStatus?.phase === "download"
+                  ? "Downloading the AI model…"
+                  : eraseStatus?.phase === "compile"
+                    ? "Preparing the AI model…"
+                    : "Erasing…"}
+              </p>
+              {eraseStatus?.phase === "download" && (
+                <>
+                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-150"
+                      style={{ width: `${Math.round((eraseStatus.progress ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">
+                    One-time ~27&nbsp;MB download · cached for next time · stays on your device
+                  </p>
+                </>
+              )}
+              {eraseStatus?.phase !== "download" && (
+                <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">
+                  Running entirely on your device — your photo never leaves the browser.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Erase error toast. */}
+        {eraseError && !erasing && (
+          <div className="absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+            <div className="flex max-w-md items-start gap-3 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-bg)] px-4 py-3 text-sm shadow-lg">
+              <span className="mt-0.5 text-[var(--color-danger)]" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
+              </span>
+              <p className="text-[var(--color-fg-muted)]">{eraseError}</p>
+              <button
+                type="button"
+                onClick={() => setEraseError(null)}
+                className="ml-auto text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
+                aria-label="Dismiss"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+              </button>
             </div>
           </div>
         )}
