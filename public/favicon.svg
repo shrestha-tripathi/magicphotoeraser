@@ -1,9 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 128 128">
-    <path d="M50.4 78.5a75.1 75.1 0 0 0-28.5 6.9l24.2-65.7c.7-2 1.9-3.2 3.4-3.2h29c1.5 0 2.7 1.2 3.4 3.2l24.2 65.7s-11.6-7-28.5-7L67 45.5c-.4-1.7-1.6-2.8-2.9-2.8-1.3 0-2.5 1.1-2.9 2.7L50.4 78.5Zm-1.1 28.2Zm-4.2-20.2c-2 6.6-.6 15.8 4.2 20.2a17.5 17.5 0 0 1 .2-.7 5.5 5.5 0 0 1 5.7-4.5c2.8.1 4.3 1.5 4.7 4.7.2 1.1.2 2.3.2 3.5v.4c0 2.7.7 5.2 2.2 7.4a13 13 0 0 0 5.7 4.9v-.3l-.2-.3c-1.8-5.6-.5-9.5 4.4-12.8l1.5-1a73 73 0 0 0 3.2-2.2 16 16 0 0 0 6.8-11.4c.3-2 .1-4-.6-6l-.8.6-1.6 1a37 37 0 0 1-22.4 2.7c-5-.7-9.7-2-13.2-6.2Z" />
-    <style>
-        path { fill: #000; }
-        @media (prefers-color-scheme: dark) {
-            path { fill: #FFF; }
-        }
-    </style>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="MagicPhotoEraser">
+  <defs>
+    <linearGradient id="mpe-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#mpe-tile)"/>
+  <!-- Magic eraser: a block eraser tilted, with a seam, plus a sparkle ("magic"). -->
+  <g transform="rotate(-28 128 132)">
+    <rect x="50" y="116" width="156" height="66" rx="16" fill="#ffffff"/>
+    <line x1="150" y1="116" x2="150" y2="182" stroke="#7c3aed" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <!-- 4-point sparkles, upper-right -->
+  <path d="M188 64 C188 86 190 88 212 88 C190 88 188 90 188 112 C188 90 186 88 164 88 C186 88 188 86 188 64 Z" fill="#ffffff"/>
+  <path d="M214 108 C214 120 215 121 227 121 C215 121 214 122 214 134 C214 122 213 121 201 121 C213 121 214 120 214 108 Z" fill="#ffffff"/>
 </svg>

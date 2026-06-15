@@ -13,6 +13,16 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
+# Force correct MIME on the legacy ICO. With nosniff set above, browsers will
+# NOT sniff-correct a wrong Content-Type, so Windows pinned tabs / Firefox
+# strict-MIME need this explicit rule to accept the multi-res favicon.ico.
+/favicon.ico
+  Content-Type: image/x-icon
+
+# PWA manifest — some configs mis-serve .webmanifest; pin it.
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+
 # Preview deployments: keep them out of the index.
 https://:project.pages.dev/*
   X-Robots-Tag: noindex
