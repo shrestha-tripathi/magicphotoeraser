@@ -158,17 +158,25 @@ function positionUI(ui: TourUI, item: ResolvedStep, index: number, total: number
   ui.backBtn.style.visibility = index === 0 ? "hidden" : "visible";
   ui.nextBtn.textContent = index === total - 1 ? "Got it" : "Next";
 
-  // Popover placement: prefer the step hint, flip if there isn't room.
+  // Popover placement: prefer the step hint, but flip to whichever side actually
+  // has room. (c13 shipped a one-sided version where a `placement:"top"` step near
+  // the viewport top would clamp to top:12 and overlap its anchor instead of
+  // flipping below — fixed here by checking BOTH directions.)
   const W = Math.min(330, window.innerWidth - 24);
   const P = 12;
   let left = rect.left + rect.width / 2 - W / 2;
   left = Math.max(P, Math.min(window.innerWidth - W - P, left));
   const estH = ui.popover.offsetHeight || 190;
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const below = item.step.placement === "bottom" && spaceBelow > estH + 24;
-  const top = below
-    ? rect.bottom + 14
-    : Math.max(P, rect.top - estH - 14);
+  const need = estH + 24;
+  const fitsBelow = window.innerHeight - rect.bottom > need;
+  const fitsAbove = rect.top > need;
+  // "bottom" hint → below unless below lacks room and above has it.
+  // "top" hint → above unless above lacks room and below has it.
+  const below =
+    item.step.placement === "bottom" ? fitsBelow || !fitsAbove : !fitsAbove && fitsBelow;
+  let top = below ? rect.bottom + 14 : rect.top - estH - 14;
+  // Keep the popover fully on-screen vertically (covers tiny viewports too).
+  top = Math.max(P, Math.min(window.innerHeight - estH - P, top));
   Object.assign(ui.popover.style, { top: `${top}px`, left: `${left}px`, width: `${W}px` });
 }
 

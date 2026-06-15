@@ -20,6 +20,9 @@ import { startTour, hasSeenTour } from "./onboardingTour";
 // PWA install prompt (vanilla DOM, ~zero dep). Lives in the editor only — keeps
 // marketing pages 0-JS, and install intent peaks after a successful erase.
 import { initPwaInstall } from "./pwaInstall";
+// Keyboard-shortcuts cheat-sheet overlay (vanilla DOM, same pattern as the tour).
+// Opened with `?` or the toolbar keyboard button; makes power-user shortcuts discoverable.
+import { toggleShortcuts, openShortcuts } from "./shortcutsHelp";
 // Type-only import: erased at build time, so the heavy onnxruntime chunk it lives
 // next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
 // via dynamic import() inside onErase, on the user's first erase.
@@ -393,6 +396,22 @@ export default function EraserApp() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [candidateMasks.length, cycleMask]);
+
+  // `?` opens the keyboard-shortcuts cheat sheet (and toggles it closed). Guarded
+  // against typing in fields and against modifier combos so it never fights a real
+  // shortcut. The overlay itself owns Esc/Tab/close once open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      toggleShortcuts();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // --- Revert to the pristine original (3-include). Frees the current result
   // unless it IS the original, points the current bitmap back at the original. ---
@@ -800,6 +819,19 @@ export default function EraserApp() {
                   <path d="M12 17h.01" />
                 </svg>
               </button>
+              {/* Keyboard-shortcuts cheat sheet (commit 15). Also opens with `?`. */}
+              <button
+                type="button"
+                onClick={openShortcuts}
+                aria-label="Keyboard shortcuts"
+                title="Keyboard shortcuts (?)"
+                className="inline-flex items-center justify-center rounded-md border border-[var(--color-border)] p-1.5 text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect width="20" height="16" x="2" y="4" rx="2" />
+                  <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10" />
+                </svg>
+              </button>
             </div>
           </div>
         </>
@@ -855,6 +887,9 @@ export default function EraserApp() {
         {erasing && (
           <div className="absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[2px]"
             style={{ backgroundColor: "color-mix(in srgb, var(--color-bg) 70%, transparent)" }}
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
           >
             <div className="w-full max-w-xs rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-5 text-center shadow-xl">
               <Spinner />
@@ -867,7 +902,14 @@ export default function EraserApp() {
               </p>
               {eraseStatus?.phase === "download" && (
                 <>
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+                  <div
+                    className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]"
+                    role="progressbar"
+                    aria-label="Model download progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round((eraseStatus.progress ?? 0) * 100)}
+                  >
                     <div
                       className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-150"
                       style={{ width: `${Math.round((eraseStatus.progress ?? 0) * 100)}%` }}
@@ -892,6 +934,9 @@ export default function EraserApp() {
         {segmenting && (
           <div className="absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[2px]"
             style={{ backgroundColor: "color-mix(in srgb, var(--color-bg) 70%, transparent)" }}
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
           >
             <div className="w-full max-w-xs rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-5 text-center shadow-xl">
               <Spinner />
@@ -904,7 +949,14 @@ export default function EraserApp() {
               </p>
               {segStatus?.phase === "download" && (
                 <>
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+                  <div
+                    className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]"
+                    role="progressbar"
+                    aria-label="Model download progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round((segStatus.progress ?? 0) * 100)}
+                  >
                     <div
                       className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-150"
                       style={{ width: `${Math.round((segStatus.progress ?? 0) * 100)}%` }}
@@ -926,7 +978,7 @@ export default function EraserApp() {
 
         {/* Erase error toast (also used for segment failures). */}
         {eraseError && !erasing && !segmenting && (
-          <div className="absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+          <div className="absolute inset-x-0 bottom-4 z-20 flex justify-center px-4" role="alert" aria-live="assertive">
             <div className="flex max-w-md items-start gap-3 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-bg)] px-4 py-3 text-sm shadow-lg">
               <span className="mt-0.5 text-[var(--color-danger)]" aria-hidden="true">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
