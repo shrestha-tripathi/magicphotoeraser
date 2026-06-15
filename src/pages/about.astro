@@ -1,0 +1,157 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Prose from "../components/Prose.astro";
+import { site } from "../site.config";
+
+const title = "About";
+const description = `Why ${site.name} exists — a free, fully private, in-browser photo object eraser that never uploads your images. The story and the principles behind it.`;
+
+const aboutSchema = {
+  "@context": "https://schema.org",
+  "@type": "AboutPage",
+  "@id": `${site.url}/about`,
+  name: `About ${site.name}`,
+  url: `${site.url}/about`,
+  description,
+  isPartOf: { "@id": `${site.url}/#website` },
+  about: { "@id": `${site.url}/#organization` },
+};
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
+    { "@type": "ListItem", position: 2, name: "About", item: `${site.url}/about` },
+  ],
+};
+
+const principles = [
+  {
+    title: "Your photos never leave your device",
+    body: "Not as a promise — as an architecture. The AI runs in your browser, so there's no server that could see your image even if we wanted it to.",
+  },
+  {
+    title: "Free forever, no asterisk",
+    body: "No Pro tier, no credits, no watermark, no account. Running on your device costs us nothing per erase, so there's nothing to charge for.",
+  },
+  {
+    title: "One job, done well",
+    body: "Remove objects from photos. Not a 200-tool editor you have to learn. Open it, brush, erase, done.",
+  },
+  {
+    title: "Keep your photo sharp",
+    body: "We only reprocess the part you brushed and drop it back into your full-resolution original — so HD photos stay HD.",
+  },
+];
+---
+
+<Layout title={title} description={description} jsonLd={[aboutSchema, breadcrumbSchema]}>
+  <Header />
+
+  <main class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <nav class="text-sm text-[var(--color-fg-subtle)]" aria-label="Breadcrumb">
+      <a href="/" class="hover:text-[var(--color-fg)]">Home</a>
+      <span class="px-1.5">/</span>
+      <span class="text-[var(--color-fg-muted)]">About</span>
+    </nav>
+
+    <header class="mt-6">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+        About {site.name}
+      </h1>
+      <p class="mt-4 text-lg text-[var(--color-fg-muted)]">
+        A free, fully private photo object eraser that runs entirely in your
+        browser — because removing something from a photo shouldn't mean
+        uploading it to a stranger's server.
+      </p>
+    </header>
+
+    <div class="mt-10">
+      <Prose>
+        <h2>Why this exists</h2>
+        <p>
+          Everyone needs to remove something from a photo eventually — a
+          photobomber, an ex, a trash can in an otherwise perfect shot, a date
+          stamp, a logo, or a license plate and ID number before sharing
+          something publicly.
+        </p>
+        <p>
+          The tools that do this today almost all work the same way: you
+          <strong>upload your photo to their server</strong>, their GPU does the
+          work, and they send it back. That means your private picture — which
+          might be a medical scan, your kid, your passport, or something you just
+          don't want sitting on someone else's computer — leaves your device. And
+          because those servers cost money to run, the genuinely sharp,
+          full-resolution result is almost always <strong>paywalled or
+          watermarked</strong>.
+        </p>
+        <p>
+          {site.name} takes the opposite approach. The AI model that erases your
+          object runs <strong>entirely inside your browser</strong>, on your own
+          hardware. Your photo is never uploaded, never stored, never seen by us
+          or anyone else. And because we don't pay a server bill for each erase,
+          we can give the whole thing away — full resolution, no watermark, no
+          signup — and keep it that way.
+        </p>
+
+        <h2>The principles</h2>
+      </Prose>
+
+      <div class="mt-6 grid gap-4 sm:grid-cols-2">
+        {
+          principles.map((p) => (
+            <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5">
+              <h3 class="font-semibold text-[var(--color-fg)]">{p.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-[var(--color-fg-muted)]">{p.body}</p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="mt-10">
+        <Prose>
+          <h2>What {site.name} is not</h2>
+          <ul>
+            <li><strong>Not a cloud service.</strong> There's no backend, no account, and no database. If a feature can't run on your device, it's out of scope.</li>
+            <li><strong>Not a general photo editor.</strong> No filters, layers, crop, or text tools — those dilute the one thing this does well.</li>
+            <li><strong>Not ad-supported inside the tool.</strong> The eraser itself is never gated or interrupted. Any ads live only on info pages like this one.</li>
+            <li><strong>Not a data business.</strong> We can't sell or analyze your photos because we never receive them.</li>
+          </ul>
+
+          <h2>Who built it</h2>
+          <p>
+            {site.name} is an independent project built by a solo developer who
+            ships small, fast, private web tools that run without a server. It's
+            part of a family of browser-native apps built around one idea: your
+            data should stay on your device.
+          </p>
+          <p>
+            The whole thing is <a href={site.githubRepo} target="_blank" rel="noopener noreferrer">open source on GitHub</a> —
+            you can read exactly what runs on your photos, file an issue, or just
+            confirm for yourself that nothing gets uploaded.
+          </p>
+        </Prose>
+      </div>
+
+      {/* CTA */}
+      <div class="mt-12 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-6 py-10 text-center">
+        <h2 class="text-2xl font-bold tracking-tight">Try it yourself</h2>
+        <p class="mx-auto mt-3 max-w-md text-[var(--color-fg-muted)]">
+          Open a photo, brush over what you want gone, and watch it disappear —
+          all without anything leaving your browser.
+        </p>
+        <a
+          href="/app"
+          class="mt-6 inline-flex rounded-lg bg-[var(--color-accent)] px-7 py-3 font-semibold text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
+        >
+          Open the eraser
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>

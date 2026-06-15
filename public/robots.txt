@@ -1,0 +1,13 @@
+# robots.txt — https://www.robotstxt.org/
+# MagicPhotoEraser — free, fully client-side photo object eraser.
+
+User-agent: *
+Allow: /
+
+# The /app eraser is a thin client-side surface (the real editor is a
+# JS island); it's marked noindex and excluded from the sitemap. Keep
+# crawlers focused on the indexable marketing + trust pages.
+Disallow: /app
+
+# Sitemap discovery
+Sitemap: https://magicphotoeraser.com/sitemap.xml

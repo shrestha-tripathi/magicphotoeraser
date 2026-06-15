@@ -10,9 +10,7 @@ import { site } from "../site.config";
 
 const year = new Date().getFullYear();
 
-// NOTE: trust pages (/about, /contact, /privacy, /terms) ship in Phase 0
-// commit 3 — they're intentionally NOT linked yet so this commit stays
-// launch-clean with zero 404s. Commit 3 adds the "Company" + "Legal" columns.
+// Trust pages live here now that they exist (shipped Phase 0 commit 3).
 interface FooterLink {
   href: string;
   label: string;
@@ -34,9 +32,18 @@ const columns: FooterColumn[] = [
     ],
   },
   {
-    title: "Project",
+    title: "Company",
     links: [
-      { href: site.githubRepo, label: "Source on GitHub", external: true },
+      { href: "/about", label: "About" },
+      { href: "/contact", label: "Contact" },
+      { href: site.githubRepo, label: "GitHub", external: true },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/privacy", label: "Privacy Policy" },
+      { href: "/terms", label: "Terms" },
     ],
   },
 ];

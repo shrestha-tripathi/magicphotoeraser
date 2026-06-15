@@ -1,0 +1,156 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Prose from "../components/Prose.astro";
+import { site } from "../site.config";
+
+const title = "Terms & Conditions";
+const description = `${site.name} terms and conditions — the simple terms for using a free, browser-based photo eraser. Acceptable use, disclaimers, and your responsibilities.`;
+
+const termsSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": `${site.url}/terms`,
+  name: `${site.name} Terms & Conditions`,
+  url: `${site.url}/terms`,
+  description,
+  isPartOf: { "@id": `${site.url}/#website` },
+};
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
+    { "@type": "ListItem", position: 2, name: "Terms & Conditions", item: `${site.url}/terms` },
+  ],
+};
+
+const lastUpdated = new Date().toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<Layout title={title} description={description} jsonLd={[termsSchema, breadcrumbSchema]}>
+  <Header />
+
+  <main class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <nav class="text-sm text-[var(--color-fg-subtle)]" aria-label="Breadcrumb">
+      <a href="/" class="hover:text-[var(--color-fg)]">Home</a>
+      <span class="px-1.5">/</span>
+      <span class="text-[var(--color-fg-muted)]">Terms &amp; Conditions</span>
+    </nav>
+
+    <header class="mt-6">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+        Terms &amp; Conditions
+      </h1>
+      <p class="mt-3 text-sm text-[var(--color-fg-subtle)]">Last updated: {lastUpdated}</p>
+    </header>
+
+    <div class="mt-10">
+      <Prose>
+        <h2>1. Acceptance of terms</h2>
+        <p>
+          By accessing or using {site.name} (the "Service") at
+          <code>{site.domain}</code>, you agree to these Terms &amp; Conditions.
+          If you don't agree, please don't use the Service. Because the Service is
+          free and requires no account, your use of it constitutes acceptance.
+        </p>
+
+        <h2>2. What the Service is</h2>
+        <p>
+          {site.name} is a free, browser-based tool that lets you remove objects
+          from your own photos using AI that runs entirely on your device. Your
+          images are processed locally and are never uploaded to us. There is no
+          account, no subscription, and no charge.
+        </p>
+
+        <h2>3. Your responsibilities</h2>
+        <p>You agree that you will:</p>
+        <ul>
+          <li>Only edit photos you own or have the right to edit;</li>
+          <li>Not use the Service to create or distribute content that is unlawful, infringing, defamatory, or that violates the privacy or rights of others;</li>
+          <li>Not use the Service to produce misleading or deceptive imagery intended to harm, defraud, or impersonate;</li>
+          <li>Comply with all applicable laws in your use of the Service and any images you create with it.</li>
+        </ul>
+        <p>
+          You are solely responsible for the photos you edit and how you use the
+          results. Since everything happens on your device, what you do with the
+          tool is entirely within your control — and your responsibility.
+        </p>
+
+        <h2>4. Intellectual property</h2>
+        <p>
+          <strong>Your photos remain yours.</strong> We claim no ownership of, and
+          acquire no rights to, any image you open or create with the Service —
+          we never even receive them. The {site.name} name, website, design, and
+          underlying code are owned by us or our licensors; the project's source
+          code is made available under the license stated in its
+          <a href={site.githubRepo} target="_blank" rel="noopener noreferrer">public repository</a>.
+          Third-party AI models used by the Service are subject to their own
+          respective licenses.
+        </p>
+
+        <h2>5. No warranty</h2>
+        <p>
+          The Service is provided <strong>"as is" and "as available," without
+          warranties of any kind</strong>, express or implied, including but not
+          limited to merchantability, fitness for a particular purpose, and
+          non-infringement. AI-based object removal is inherently imperfect:
+          results vary by image, and the tool may produce artifacts or
+          unsatisfactory output. We do not warrant that the Service will be
+          uninterrupted, error-free, or that results will meet your expectations.
+          Performance depends on your device and browser.
+        </p>
+
+        <h2>6. Limitation of liability</h2>
+        <p>
+          To the maximum extent permitted by law, {site.name} and its operator
+          shall not be liable for any indirect, incidental, special,
+          consequential, or punitive damages, or any loss of data, profits, or
+          goodwill, arising out of or related to your use of (or inability to use)
+          the Service — even if advised of the possibility of such damages.
+          Because the Service is provided free of charge, our total aggregate
+          liability for any claim relating to the Service shall not exceed
+          <strong>USD $0</strong>.
+        </p>
+
+        <h2>7. Third-party links and advertising</h2>
+        <p>
+          The site may contain links to third-party websites and may display
+          advertising on informational pages to keep the Service free. We are not
+          responsible for the content, policies, or practices of any third-party
+          sites or advertisers.
+        </p>
+
+        <h2>8. Changes to the Service and these terms</h2>
+        <p>
+          We may modify, suspend, or discontinue any part of the Service at any
+          time without notice. We may also update these Terms from time to time;
+          the "last updated" date above reflects the latest version. Continued
+          use after changes constitutes acceptance of the revised Terms.
+        </p>
+
+        <h2>9. Governing law</h2>
+        <p>
+          These Terms are governed by the laws of {site.jurisdiction}, without
+          regard to its conflict-of-laws principles. Any disputes shall be subject
+          to the courts of competent jurisdiction in {site.jurisdiction}.
+        </p>
+
+        <h2>10. Contact</h2>
+        <p>
+          Questions about these Terms? Email
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. See also
+          our <a href="/privacy">Privacy Policy</a>.
+        </p>
+      </Prose>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>

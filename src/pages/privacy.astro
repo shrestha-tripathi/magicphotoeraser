@@ -1,0 +1,220 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Prose from "../components/Prose.astro";
+import { site } from "../site.config";
+
+const title = "Privacy Policy";
+const description = `${site.name} privacy policy — your photos are processed entirely in your browser and never uploaded. What little data is collected, your rights under GDPR and CCPA, and how to contact us.`;
+
+const privacySchema = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": `${site.url}/privacy`,
+  name: `${site.name} Privacy Policy`,
+  url: `${site.url}/privacy`,
+  description,
+  isPartOf: { "@id": `${site.url}/#website` },
+};
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
+    { "@type": "ListItem", position: 2, name: "Privacy Policy", item: `${site.url}/privacy` },
+  ],
+};
+
+// Build-time "last updated" date — stable across a deploy, no client JS.
+const lastUpdated = new Date().toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<Layout title={title} description={description} jsonLd={[privacySchema, breadcrumbSchema]}>
+  <Header />
+
+  <main class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <nav class="text-sm text-[var(--color-fg-subtle)]" aria-label="Breadcrumb">
+      <a href="/" class="hover:text-[var(--color-fg)]">Home</a>
+      <span class="px-1.5">/</span>
+      <span class="text-[var(--color-fg-muted)]">Privacy Policy</span>
+    </nav>
+
+    <header class="mt-6">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">Privacy Policy</h1>
+      <p class="mt-3 text-sm text-[var(--color-fg-subtle)]">Last updated: {lastUpdated}</p>
+    </header>
+
+    {/* The TL;DR — the technical reality, up top */}
+    <div
+      class="mt-8 rounded-xl border p-5"
+      style="border-color: color-mix(in srgb, var(--color-accent) 30%, transparent); background-color: color-mix(in srgb, var(--color-accent) 8%, transparent);"
+    >
+      <p class="text-sm leading-relaxed text-[var(--color-fg)]">
+        <strong>The short version:</strong> {site.name} edits your photos entirely
+        inside your own browser. Your images are <strong>never uploaded</strong> to
+        us or anyone else — there is no server that receives them. We don't have
+        accounts, we don't store your photos, and we can't see what you erase.
+        This page explains the little data that is involved anyway (basic,
+        privacy-respecting analytics and, possibly, ads on info pages).
+      </p>
+    </div>
+
+    <div class="mt-10">
+      <Prose>
+        <h2>1. Who we are</h2>
+        <p>
+          {site.name} ("we", "us", "the site") operates the website at
+          <code>{site.domain}</code>, a free, browser-based tool for removing
+          objects from photos. For any privacy question, contact us at
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. We are
+          the data controller for the limited information described below.
+        </p>
+
+        <h2>2. Your photos are processed locally and never uploaded</h2>
+        <p>
+          This is the core of how the tool works, so it comes first. When you
+          open a photo in {site.name}:
+        </p>
+        <ul>
+          <li>The image is loaded and processed <strong>entirely within your browser</strong>, on your own device.</li>
+          <li>The AI model that erases objects runs locally (via WebGPU or WebAssembly). It is downloaded to your device and runs there.</li>
+          <li>Your photo is <strong>never transmitted to our servers, a third party, or any cloud service.</strong> There is no upload step.</li>
+          <li>We do not receive, store, log, or have any ability to view the images you edit.</li>
+          <li>When you close or refresh the tab, the image is gone from memory. We keep no copy because we never had one.</li>
+        </ul>
+        <p>
+          You can verify this yourself: open your browser's developer tools,
+          switch to the Network tab, and erase something. You will see no
+          outbound request carrying your image data.
+        </p>
+
+        <h2>3. Information we do collect</h2>
+        <p>
+          Because there are no accounts and no uploads, the data we touch is
+          minimal:
+        </p>
+        <h3>a. Analytics</h3>
+        <p>
+          We may use a privacy-respecting analytics tool (such as Google
+          Analytics 4) to understand aggregate, anonymous usage — for example,
+          how many people visited a page, which country region they're in
+          (approximate), and which browser they use. This helps us improve the
+          site. This data is aggregated and is <strong>not</strong> used to
+          identify you personally, and it never includes your photos. Analytics
+          is only active in production and may be disabled entirely.
+        </p>
+        <h3>b. Server logs</h3>
+        <p>
+          The site is served as static files by our hosting provider
+          (Cloudflare Pages). Like virtually all websites, the host may process
+          standard technical request data (such as IP address and user-agent)
+          to deliver pages and protect against abuse. We do not control or retain
+          these logs beyond what the host provides.
+        </p>
+        <h3>c. Local storage on your device</h3>
+        <p>
+          To make the tool fast and able to work offline, your browser may cache
+          the downloaded AI model and your preferences on your own device (using
+          the Cache API, IndexedDB, or localStorage). This data stays on your
+          device, is not sent to us, and you can clear it anytime via your
+          browser settings.
+        </p>
+
+        <h2>4. Cookies and advertising</h2>
+        <p>
+          The tool itself does not require cookies to function. We may serve
+          advertisements on informational pages (such as this one, the FAQ, or
+          the blog) to help keep {site.name} free. We never place ads inside or
+          interrupt the eraser.
+        </p>
+        <p>
+          If we use a third-party ad network such as Google AdSense, that network
+          may use cookies or similar technologies to serve and measure ads. Third
+          parties, including Google, use cookies to serve ads based on a user's
+          prior visits to this and other websites. Google's use of advertising
+          cookies enables it and its partners to serve ads based on your visit to
+          this and/or other sites. You can opt out of personalized advertising by
+          visiting
+          <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener noreferrer">Google Ads Settings</a>,
+          and review options at
+          <a href="https://www.aboutads.info/choices/" target="_blank" rel="noopener noreferrer">aboutads.info/choices</a>.
+          Where required by law, ads will be served in a non-personalized mode or
+          subject to a consent prompt.
+        </p>
+
+        <h2>5. How we use information</h2>
+        <p>We use the limited data above only to:</p>
+        <ul>
+          <li>Operate, maintain, and improve the website;</li>
+          <li>Understand aggregate usage trends;</li>
+          <li>Keep the site secure and prevent abuse;</li>
+          <li>Display advertising on informational pages (if enabled).</li>
+        </ul>
+        <p>We do not sell your personal information.</p>
+
+        <h2>6. Your rights (GDPR, CCPA, and others)</h2>
+        <p>
+          Depending on where you live, you may have rights over your personal
+          data, including the right to access, correct, delete, or restrict its
+          processing, and the right to object to processing or data portability.
+          Under the CCPA, California residents have the right to know what
+          personal information is collected and to opt out of its sale (we do not
+          sell personal information).
+        </p>
+        <p>
+          Because we don't hold accounts or your photos, in most cases we simply
+          have no personal data tied to you. For anything analytics- or
+          host-related, or to exercise any right, email
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a> and we
+          will respond as required by applicable law.
+        </p>
+
+        <h2>7. Children's privacy</h2>
+        <p>
+          {site.name} is not directed at children under 13 (or the minimum age in
+          your jurisdiction), and we do not knowingly collect personal
+          information from them. Since the tool requires no account and collects
+          no photos, there is no personal data for a child to provide.
+        </p>
+
+        <h2>8. Data retention and security</h2>
+        <p>
+          We retain the minimal analytics data only as long as needed for the
+          purposes above. Because your photos are never uploaded, there is no
+          image data for us to retain or secure. The site is served over HTTPS.
+        </p>
+
+        <h2>9. Third-party services</h2>
+        <p>
+          We rely on a small number of third parties to operate: our hosting
+          provider (Cloudflare Pages), and optionally an analytics provider
+          (Google Analytics) and an ad network (Google AdSense). Each has its own
+          privacy policy governing the data they process.
+        </p>
+
+        <h2>10. Changes to this policy</h2>
+        <p>
+          We may update this policy from time to time. When we do, we'll revise
+          the "last updated" date at the top. Material changes will be reflected
+          on this page.
+        </p>
+
+        <h2>11. Contact</h2>
+        <p>
+          Questions about this policy or your data? Email
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. You can
+          also read our <a href="/terms">Terms &amp; Conditions</a> or learn more
+          on the <a href="/about">About</a> page.
+        </p>
+      </Prose>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>

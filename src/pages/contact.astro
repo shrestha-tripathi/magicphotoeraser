@@ -1,0 +1,113 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+const title = "Contact";
+const description = `Get in touch with ${site.name} — email, GitHub issues, and security disclosures. Questions, feedback, and bug reports welcome.`;
+
+const contactSchema = {
+  "@context": "https://schema.org",
+  "@type": "ContactPage",
+  "@id": `${site.url}/contact`,
+  name: `Contact ${site.name}`,
+  url: `${site.url}/contact`,
+  description,
+  isPartOf: { "@id": `${site.url}/#website` },
+};
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: site.url },
+    { "@type": "ListItem", position: 2, name: "Contact", item: `${site.url}/contact` },
+  ],
+};
+
+const githubIssues = `${site.githubRepo}/issues`;
+
+const channels = [
+  {
+    title: "Email",
+    desc: "General questions, feedback, partnership, or press. We typically reply within 2–3 days.",
+    value: site.contactEmail,
+    href: `mailto:${site.contactEmail}`,
+    // Lucide "mail"
+    icon: `<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>`,
+  },
+  {
+    title: "GitHub Issues",
+    desc: "Found a bug or want to request a feature? File it on the public repo — it's the fastest way to get it tracked.",
+    value: "File a new issue",
+    href: githubIssues,
+    external: true,
+    // Lucide "github"
+    icon: `<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C5 2 4 2 4 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 3 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>`,
+  },
+  {
+    title: "Security disclosures",
+    desc: "Responsibly reporting a vulnerability? Email us with the subject prefix [Security] and we'll prioritize it.",
+    value: site.contactEmail,
+    href: `mailto:${site.contactEmail}?subject=%5BSecurity%5D`,
+    // Lucide "shield-check"
+    icon: `<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>`,
+  },
+];
+---
+
+<Layout title={title} description={description} jsonLd={[contactSchema, breadcrumbSchema]}>
+  <Header />
+
+  <main class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <nav class="text-sm text-[var(--color-fg-subtle)]" aria-label="Breadcrumb">
+      <a href="/" class="hover:text-[var(--color-fg)]">Home</a>
+      <span class="px-1.5">/</span>
+      <span class="text-[var(--color-fg-muted)]">Contact</span>
+    </nav>
+
+    <header class="mt-6">
+      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">Contact</h1>
+      <p class="mt-4 text-lg text-[var(--color-fg-muted)]">
+        Questions, feedback, bug reports, or security disclosures — here's how to
+        reach us. (No contact form: we don't run a server to process one, and we
+        won't pretend otherwise.)
+      </p>
+    </header>
+
+    <div class="mt-10 space-y-4">
+      {
+        channels.map((c) => (
+          <a
+            href={c.href}
+            {...(c.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            class="flex items-start gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
+          >
+            <span
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-accent)]"
+              style="background-color: color-mix(in srgb, var(--color-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);"
+              aria-hidden="true"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={c.icon} />
+            </span>
+            <div class="min-w-0">
+              <h2 class="font-semibold text-[var(--color-fg)]">{c.title}</h2>
+              <p class="mt-1 text-sm leading-relaxed text-[var(--color-fg-muted)]">{c.desc}</p>
+              <p class="mt-2 break-words text-sm font-medium text-[var(--color-accent)]">{c.value}</p>
+            </div>
+          </a>
+        ))
+      }
+    </div>
+
+    <p class="mt-8 text-sm text-[var(--color-fg-subtle)]">
+      For data-privacy requests, see our
+      <a href="/privacy" class="text-[var(--color-accent)] hover:underline">Privacy Policy</a> —
+      though since your photos never leave your device, there's very little data
+      for us to hold in the first place.
+    </p>
+  </main>
+
+  <Footer />
+</Layout>
