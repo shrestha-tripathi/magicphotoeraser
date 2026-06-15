@@ -5,16 +5,19 @@ import {
   ImageDecodeError,
   type DecodedImage,
 } from "./decodeImage";
-import ImageStage, { type StageGeometry } from "./ImageStage";
+import CanvasEditor from "./CanvasEditor";
+import BrushToolbar from "./BrushToolbar";
+import { useBrushMask } from "./useBrushMask";
 
 /**
  * EraserApp — the /app editor island (client:only="react").
  *
- * Commit 5 scope = the editor FOUNDATION only: get a photo in (file picker /
- * drag-drop / paste), decode it EXIF-correctly + metadata-free, and display it
- * on a DPR-aware canvas with a minimal toolbar + reset. No brush, no model,
- * no erase yet — those are the next commits, and this state shape (one owned
- * full-res ImageBitmap) is the foundation they build on.
+ * Commit 5 — FOUNDATION: get a photo in (picker / drag-drop / paste), decode it
+ * EXIF-correctly + metadata-free, display it on a DPR-aware canvas.
+ * Commit 6 — BRUSH: paint a source-resolution selection mask over the photo
+ * (Add/Remove, size, undo/redo/clear). Still no model/erase — c6 only produces
+ * the mask that c7/c8 will feed to the inpainter. The owned full-res ImageBitmap
+ * + the source-res mask are the two buffers the crop-bbox pipeline consumes.
  */
 
 type Phase = "empty" | "decoding" | "ready" | "error";
@@ -32,7 +35,9 @@ export default function EraserApp() {
   const [image, setImage] = useState<DecodedImage | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [, setGeometry] = useState<StageGeometry | null>(null);
+
+  // Brush mask lives at SOURCE resolution; recreated when the image changes.
+  const mask = useBrushMask(image?.width ?? 0, image?.height ?? 0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Hold the live bitmap in a ref too, so cleanup always frees the latest even
@@ -104,6 +109,31 @@ export default function EraserApp() {
   // --- Free the bitmap if the island unmounts ---
   useEffect(() => releaseImage, [releaseImage]);
 
+  // --- Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo ---
+  const readyRef = useRef(false);
+  readyRef.current = phase === "ready";
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!readyRef.current) return;
+      const target = e.target as HTMLElement | null;
+      // Don't hijack typing in inputs (e.g. the size slider has focus).
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) mask.redo();
+        else mask.undo();
+      } else if (k === "y") {
+        e.preventDefault();
+        mask.redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mask]);
+
   // --- Drag-and-drop (whole editor surface is a drop target) ---
   const onDragEnter = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer?.types?.includes("Files")) {
@@ -156,47 +186,50 @@ export default function EraserApp() {
         tabIndex={-1}
       />
 
-      {/* Toolbar — only meaningful once an image is loaded. */}
+      {/* Toolbars — only meaningful once an image is loaded. */}
       {image && phase === "ready" && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-border)] px-4 py-2.5 text-sm">
-          <span className="font-medium text-[var(--color-fg)] truncate max-w-[14rem]" title={image.name}>
-            {image.name}
-          </span>
-          <span className="text-[var(--color-fg-muted)]">
-            {image.width.toLocaleString()} × {image.height.toLocaleString()} px
-          </span>
-          <span className="text-[var(--color-fg-subtle)]">{formatBytes(image.sizeBytes)}</span>
-          {image.downscaled && (
-            <span
-              className="rounded-full bg-[var(--color-bg-muted)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)]"
-              title={`Reduced from ${image.sourceWidth.toLocaleString()} × ${image.sourceHeight.toLocaleString()} px to stay fast and within memory.`}
-            >
-              reduced for performance
+        <>
+          <BrushToolbar mask={mask} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-border)] px-4 py-2 text-sm">
+            <span className="font-medium text-[var(--color-fg)] truncate max-w-[14rem]" title={image.name}>
+              {image.name}
             </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openPicker}
-              className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg)] transition-colors hover:bg-[var(--color-bg-muted)]"
-            >
-              Replace
-            </button>
-            <button
-              type="button"
-              onClick={reset}
-              className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
-            >
-              Start over
-            </button>
+            <span className="text-[var(--color-fg-muted)]">
+              {image.width.toLocaleString()} × {image.height.toLocaleString()} px
+            </span>
+            <span className="text-[var(--color-fg-subtle)]">{formatBytes(image.sizeBytes)}</span>
+            {image.downscaled && (
+              <span
+                className="rounded-full bg-[var(--color-bg-muted)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)]"
+                title={`Reduced from ${image.sourceWidth.toLocaleString()} × ${image.sourceHeight.toLocaleString()} px to stay fast and within memory.`}
+              >
+                reduced for performance
+              </span>
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={openPicker}
+                className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg)] transition-colors hover:bg-[var(--color-bg-muted)]"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+              >
+                Start over
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Stage area */}
       <div className="relative flex flex-1 items-stretch justify-center">
         {phase === "ready" && image ? (
-          <ImageStage bitmap={image.bitmap} onGeometry={setGeometry} />
+          <CanvasEditor bitmap={image.bitmap} mask={mask} />
         ) : phase === "decoding" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
             <Spinner />
