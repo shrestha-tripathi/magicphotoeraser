@@ -7,7 +7,13 @@ import {
 } from "./decodeImage";
 import CanvasEditor from "./CanvasEditor";
 import BrushToolbar from "./BrushToolbar";
+import BeforeAfterSlider from "./BeforeAfterSlider";
 import { useBrushMask } from "./useBrushMask";
+import {
+  defaultFormatFor,
+  downloadBitmap,
+  type DownloadFormat,
+} from "./download";
 // Type-only import: erased at build time, so the heavy onnxruntime chunk it lives
 // next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
 // via dynamic import() inside onErase, on the user's first erase.
@@ -51,6 +57,18 @@ export default function EraserApp() {
   const [eraseStatus, setEraseStatus] = useState<InpaintStatus | null>(null);
   const [eraseError, setEraseError] = useState<string | null>(null);
 
+  // --- Compare / download state (commit 8) ---
+  // `hasEdited` is true once at least one erase has happened, which unlocks the
+  // Compare slider, Download, and Revert controls. `compareMode` swaps the brush
+  // editor for the before/after slider. `downloading` debounces the export click.
+  const [hasEdited, setHasEdited] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  // The pristine uploaded bitmap, retained for the whole session so Compare can
+  // show the original and Revert can restore it. NOT closed on erase-swap — only
+  // on reset/replace. Kept SEPARATE from bitmapRef (which tracks the current result).
+  const originalBitmapRef = useRef<ImageBitmap | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Hold the live bitmap in a ref too, so cleanup always frees the latest even
   // if state updates are batched/interrupted.
@@ -62,6 +80,14 @@ export default function EraserApp() {
       bitmapRef.current.close();
       bitmapRef.current = null;
     }
+    if (originalBitmapRef.current) {
+      // Only close the original if it's a DIFFERENT object than the current
+      // bitmap (after a revert they can be the same reference).
+      if (originalBitmapRef.current !== bitmapRef.current) {
+        originalBitmapRef.current.close();
+      }
+      originalBitmapRef.current = null;
+    }
   }, []);
 
   const ingest = useCallback(
@@ -69,10 +95,15 @@ export default function EraserApp() {
       // Free any previous image before decoding the next.
       releaseImage();
       setError(null);
+      setEraseError(null);
+      setHasEdited(false);
+      setCompareMode(false);
       setPhase("decoding");
       try {
         const decoded = await decodeImage(blob, name);
         bitmapRef.current = decoded.bitmap;
+        // Retain the pristine original for Compare / Revert (whole session).
+        originalBitmapRef.current = decoded.bitmap;
         setImage(decoded);
         setPhase("ready");
       } catch (e) {
@@ -103,6 +134,8 @@ export default function EraserApp() {
     setImage(null);
     setError(null);
     setEraseError(null);
+    setHasEdited(false);
+    setCompareMode(false);
     setPhase("empty");
   }, [releaseImage]);
 
@@ -125,8 +158,12 @@ export default function EraserApp() {
       bitmapRef.current = result;
       setImage((img) => (img ? { ...img, bitmap: result } : img));
       mask.clear();
-      // Free the bitmap we just replaced (after state has the new one).
-      if (prev && prev !== result) prev.close();
+      setHasEdited(true);
+      // Free the bitmap we just replaced — UNLESS it's the pristine original
+      // (which we retain for Compare / Revert), or the same object as the result.
+      if (prev && prev !== result && prev !== originalBitmapRef.current) {
+        prev.close();
+      }
     } catch (e) {
       console.error("[erase] failed", e);
       setEraseError(
@@ -137,6 +174,35 @@ export default function EraserApp() {
       setEraseStatus(null);
     }
   }, [image, mask, erasing]);
+
+  // --- Revert to the pristine original (3-include). Frees the current result
+  // unless it IS the original, points the current bitmap back at the original. ---
+  const revert = useCallback(() => {
+    const orig = originalBitmapRef.current;
+    if (!orig || !image) return;
+    const cur = bitmapRef.current;
+    if (cur && cur !== orig) cur.close();
+    bitmapRef.current = orig;
+    setImage((img) => (img ? { ...img, bitmap: orig } : img));
+    mask.clear();
+    setHasEdited(false);
+    setCompareMode(false);
+  }, [image, mask]);
+
+  // --- Download the current result (2c: format defaults to the source type) ---
+  const onDownload = useCallback(async () => {
+    if (!image || downloading) return;
+    setDownloading(true);
+    try {
+      const format: DownloadFormat = defaultFormatFor(image.type, image.name);
+      await downloadBitmap(image.bitmap, image.name, format);
+    } catch (e) {
+      console.error("[download] failed", e);
+      setEraseError("Couldn’t save the image. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }, [image, downloading]);
 
   // --- Global paste (Ctrl/Cmd+V a screenshot anywhere on the page) ---
   useEffect(() => {
@@ -234,7 +300,8 @@ export default function EraserApp() {
       {/* Toolbars — only meaningful once an image is loaded. */}
       {image && phase === "ready" && (
         <>
-          <BrushToolbar mask={mask} />
+          {/* Brush controls hide in Compare mode (the slider is read-only). */}
+          {!compareMode && <BrushToolbar mask={mask} />}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-border)] px-4 py-2 text-sm">
             <span className="font-medium text-[var(--color-fg)] truncate max-w-[14rem]" title={image.name}>
               {image.name}
@@ -251,21 +318,77 @@ export default function EraserApp() {
                 reduced for performance
               </span>
             )}
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onErase}
-                disabled={!mask.hasMask || erasing}
-                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-1.5 font-semibold text-[var(--color-accent-fg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                title={mask.hasMask ? "Erase the selected area" : "Brush over something first"}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
-                  <path d="M22 21H7" />
-                  <path d="m5 11 9 9" />
-                </svg>
-                {erasing ? "Erasing…" : "Erase"}
-              </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {/* Primary erase action — hidden in Compare mode. */}
+              {!compareMode && (
+                <button
+                  type="button"
+                  onClick={onErase}
+                  disabled={!mask.hasMask || erasing}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-1.5 font-semibold text-[var(--color-accent-fg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={mask.hasMask ? "Erase the selected area" : "Brush over something first"}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                    <path d="M22 21H7" />
+                    <path d="m5 11 9 9" />
+                  </svg>
+                  {erasing ? "Erasing…" : "Erase"}
+                </button>
+              )}
+
+              {/* Compare toggle — appears once at least one erase has happened. */}
+              {hasEdited && (
+                <button
+                  type="button"
+                  onClick={() => setCompareMode((c) => !c)}
+                  aria-pressed={compareMode}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-medium transition-colors ${
+                    compareMode
+                      ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                      : "border-[var(--color-border)] text-[var(--color-fg)] hover:bg-[var(--color-bg-muted)]"
+                  }`}
+                  title="Compare before and after"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3v18" />
+                    <path d="M3 7.5 7 3v18l-4-4.5" />
+                    <path d="m21 7.5-4-4.5v18l4-4.5" />
+                  </svg>
+                  {compareMode ? "Editing" : "Compare"}
+                </button>
+              )}
+
+              {/* Revert to original (3-include) — only after an edit. */}
+              {hasEdited && (
+                <button
+                  type="button"
+                  onClick={revert}
+                  className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                  title="Restore the original photo"
+                >
+                  Revert
+                </button>
+              )}
+
+              {/* Download — available once edited (the whole point of v0.1). */}
+              {hasEdited && (
+                <button
+                  type="button"
+                  onClick={onDownload}
+                  disabled={downloading}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-fg)] px-4 py-1.5 font-semibold text-[var(--color-bg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Download the result (full resolution, no watermark)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <path d="M7 10l5 5 5-5" />
+                    <path d="M12 15V3" />
+                  </svg>
+                  {downloading ? "Saving…" : "Download"}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={openPicker}
@@ -288,7 +411,11 @@ export default function EraserApp() {
       {/* Stage area */}
       <div className="relative flex flex-1 items-stretch justify-center">
         {phase === "ready" && image ? (
-          <CanvasEditor bitmap={image.bitmap} mask={mask} />
+          compareMode && originalBitmapRef.current ? (
+            <BeforeAfterSlider before={originalBitmapRef.current} after={image.bitmap} />
+          ) : (
+            <CanvasEditor bitmap={image.bitmap} mask={mask} />
+          )
         ) : phase === "decoding" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
             <Spinner />
