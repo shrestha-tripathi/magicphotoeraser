@@ -33,20 +33,31 @@ const ORT_VERSION = "1.26.0";
 // vendor them; do NOT point at an origin that omits CORP or the worker won't load.
 const WASM_PATHS = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
 
-let _envConfigured = false;
+let _envBaseConfigured = false;
+let _envBackend: Backend | null = null;
 function configureEnv(backend: Backend) {
-  if (_envConfigured) return;
-  ort.env.wasm.wasmPaths = WASM_PATHS;
+  // NOTE: ort.env.wasm is a GLOBAL singleton shared with the SAM/segment engine
+  // (both import the same onnxruntime-web/webgpu chunk). So this MUST re-apply on
+  // every backend change — a one-shot `if (configured) return` would let a stale
+  // proxy=true from a wasm run leak into a later webgpu attempt (in either engine)
+  // and make InferenceSession.create() throw "worker not ready".
+  if (!_envBaseConfigured) {
+    ort.env.wasm.wasmPaths = WASM_PATHS;
+    _envBaseConfigured = true;
+  }
+  if (_envBackend === backend) return;
   if (backend === "webgpu") {
-    // WebGPU EP does the heavy lifting on-GPU; a single proxy thread is plenty
-    // and avoids spinning up a worker pool we won't use.
+    // WebGPU EP does the heavy lifting on-GPU; one helper thread is plenty.
+    // proxy=false is CRUCIAL: routing the GPU EP through the proxy Worker adds
+    // only a race surface and is what throws "worker not ready" on real GPUs.
     ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
   } else {
     const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
     ort.env.wasm.numThreads = Math.min(cores, 4);
     ort.env.wasm.proxy = true; // keep the (slow) WASM compute off the UI thread
   }
-  _envConfigured = true;
+  _envBackend = backend;
 }
 
 export interface InpaintStatus {
@@ -97,7 +108,8 @@ async function getSession(onStatus?: (s: InpaintStatus) => void): Promise<ort.In
       if (backend === "webgpu") {
         console.warn("[inpaint] WebGPU session failed, falling back to WASM", e);
         _backend = "wasm";
-        configureEnvReset();
+        // configureEnv is backend-keyed + idempotent — switching to "wasm"
+        // re-applies proxy/numThreads with no manual reset needed.
         configureEnv("wasm");
         return await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
       }
@@ -109,10 +121,6 @@ async function getSession(onStatus?: (s: InpaintStatus) => void): Promise<ort.In
     _sessionPromise = null;
   });
   return _sessionPromise;
-}
-
-function configureEnvReset() {
-  _envConfigured = false;
 }
 
 /** Pack a canvas's RGBA ImageData into planar RGB-CHW uint8 (drops alpha). */

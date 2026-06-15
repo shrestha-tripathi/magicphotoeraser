@@ -54,18 +54,32 @@ const ORT_VERSION = "1.26.0";
 // COEP:require-corp. Same source the inpaint runtime uses; keep them aligned.
 const WASM_PATHS = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
 
-let _envConfigured = false;
+let _envBaseConfigured = false;
+let _envBackend: Backend | null = null;
 function configureEnv(backend: Backend) {
-  if (_envConfigured) return;
-  ort.env.wasm.wasmPaths = WASM_PATHS;
+  // wasmPaths only needs setting once; the rest MUST re-apply whenever the backend
+  // changes (e.g. webgpu → wasm fallback, or a retry that re-picks webgpu). An
+  // early `if (configured) return` is a TRAP here: ort.env.wasm is a GLOBAL shared
+  // with the inpaint engine, so a stale proxy=true from a prior wasm run would leak
+  // into a later webgpu attempt and make create() throw "worker not ready".
+  if (!_envBaseConfigured) {
+    ort.env.wasm.wasmPaths = WASM_PATHS;
+    _envBaseConfigured = true;
+  }
+  if (_envBackend === backend) return;
   if (backend === "webgpu") {
+    // GPU does the compute; one helper thread is plenty. CRUCIALLY proxy=false:
+    // running the WebGPU EP through the proxy Worker adds nothing but a race
+    // surface and is what made create() throw "worker not ready" on real-GPU
+    // machines (esp. on a retry after a wasm fallback left proxy=true).
     ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
   } else {
     const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
     ort.env.wasm.numThreads = Math.min(cores, 4);
     ort.env.wasm.proxy = true;
   }
-  _envConfigured = true;
+  _envBackend = backend;
 }
 
 export interface SegmentStatus {
@@ -129,21 +143,29 @@ async function getSessions(onStatus?: (s: SegmentStatus) => void): Promise<SamSe
     const create = async (bytes: ArrayBuffer, ep: Backend) =>
       ort.InferenceSession.create(bytes, { executionProviders: [ep] });
 
+    // ⚠️ Build the two sessions SEQUENTIALLY — never via Promise.all. ORT-web
+    // initializes its WASM/JSEP runtime lazily on the FIRST create(); a second
+    // create() that races that init throws "worker not ready". The single-session
+    // inpaint engine never tripped this, but SAM needs encoder + decoder, and the
+    // race only bites on machines that actually select the webgpu EP — our headless
+    // QA box has a NULL adapter, silently used wasm, and won the race by luck.
+    // Awaiting the encoder fully warms the runtime before the decoder starts.
+    const createBoth = async (ep: Backend) => {
+      const encoder = await create(encBytes, ep);
+      const decoder = await create(decBytes, ep);
+      return { encoder, decoder };
+    };
+
     try {
-      const [encoder, decoder] = await Promise.all([
-        create(encBytes, backend),
-        create(decBytes, backend),
-      ]);
+      const { encoder, decoder } = await createBoth(backend);
       return { encoder, decoder, backend };
     } catch (e) {
       if (backend === "webgpu") {
         console.warn("[segment] WebGPU session failed, falling back to WASM", e);
-        _envConfigured = false;
+        // configureEnv is backend-keyed + idempotent now — switching to "wasm"
+        // re-applies proxy/numThreads correctly without any manual reset flag.
         configureEnv("wasm");
-        const [encoder, decoder] = await Promise.all([
-          create(encBytes, "wasm"),
-          create(decBytes, "wasm"),
-        ]);
+        const { encoder, decoder } = await createBoth("wasm");
         return { encoder, decoder, backend: "wasm" };
       }
       throw e;
