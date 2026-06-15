@@ -127,5 +127,22 @@ const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
   </head>
   <body>
     <slot />
+
+    {/*
+      Register the install-only service worker. It enables PWA installation
+      (home-screen / standalone) and does NOT cache — the eraser needs the
+      network for its model, and fetch passthrough keeps COOP/COEP intact for
+      SharedArrayBuffer. Registered on `load` so it never competes with first
+      paint. See public/sw.js + src/app/pwaInstall.ts.
+    */}
+    <script is:inline>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").catch(function (err) {
+            console.warn("[SW] registration failed:", err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

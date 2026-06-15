@@ -17,6 +17,9 @@ import {
 // First-run onboarding tour (~6 KB vanilla DOM, no runtime dep — safe to import
 // statically; it lazily injects its overlay only when started).
 import { startTour, hasSeenTour } from "./onboardingTour";
+// PWA install prompt (vanilla DOM, ~zero dep). Lives in the editor only — keeps
+// marketing pages 0-JS, and install intent peaks after a successful erase.
+import { initPwaInstall } from "./pwaInstall";
 // Type-only import: erased at build time, so the heavy onnxruntime chunk it lives
 // next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
 // via dynamic import() inside onErase, on the user's first erase.
@@ -436,6 +439,15 @@ export default function EraserApp() {
 
   // --- Free the bitmap if the island unmounts ---
   useEffect(() => releaseImage, [releaseImage]);
+
+  // --- PWA install prompt (commit 14) ---
+  // Wire up install handling once on mount. initPwaInstall() is a no-op if the
+  // app is already installed or the user recently dismissed the pill, and only
+  // attaches listeners (the pill itself appears later, on beforeinstallprompt or
+  // the iOS hint timer). Editor-only by design — marketing pages stay 0-JS.
+  useEffect(() => {
+    initPwaInstall();
+  }, []);
 
   // --- First-run onboarding tour (commit 13) ---
   // Fire ONCE, the first time a photo successfully decodes (phase → "ready"),

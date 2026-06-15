@@ -250,3 +250,116 @@ body {
     left: 12px !important;
   }
 }
+
+/*
+  PWA install pill (commit 14) — a bottom-center chip shown in the /app editor
+  to offer home-screen installation (custom prompt replacing Chrome's infobar;
+  manual hint on iOS). Both themes via design tokens; sits BELOW the onboarding
+  tour overlay (z 82) so a first-run tour always wins. See src/app/pwaInstall.ts.
+*/
+@keyframes mpe-install-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.mpe-install {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.6rem 0.6rem 0.6rem 0.85rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: mpe-install-in 220ms ease-out both;
+}
+.mpe-install-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+.mpe-install-text {
+  min-width: 0;
+}
+.mpe-install-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--color-fg);
+  line-height: 1.2;
+}
+.mpe-install-body {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-fg-muted);
+  margin-top: 0.1rem;
+}
+.mpe-install-body b {
+  color: var(--color-fg);
+  font-weight: 600;
+}
+.mpe-install-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.mpe-install-btn {
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  transition: opacity 120ms ease;
+}
+.mpe-install-btn:hover {
+  opacity: 0.9;
+}
+.mpe-install-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-fg-subtle);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.mpe-install-close:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mpe-install {
+    animation: none !important;
+  }
+}
+@media (max-width: 420px) {
+  .mpe-install {
+    width: calc(100vw - 1.5rem);
+  }
+}
+
