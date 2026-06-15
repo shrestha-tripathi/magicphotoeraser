@@ -24,14 +24,17 @@ const domain = /\.pages\.dev/i.test(rawDomain) ? DEFAULT_DOMAIN : rawDomain;
 export const site = {
   /** Brand / product name. */
   name: env.PUBLIC_SITE_NAME ?? "MagicPhotoEraser",
-  /** Short tagline shown in the hero + meta. */
+  /**
+   * Short tagline — feeds the homepage <title> (composed as "Brand — tagline")
+   * and og:image:alt. Kept under ~43 chars so the homepage title stays ≤ 60 and
+   * doesn't truncate in Google SERPs.
+   */
   tagline:
-    env.PUBLIC_SITE_TAGLINE ??
-    "Erase anything from a photo — right in your browser.",
+    env.PUBLIC_SITE_TAGLINE ?? "Erase anything from a photo, in-browser",
   /** One-sentence description for <meta description> + OG. */
   description:
     env.PUBLIC_SITE_DESCRIPTION ??
-    "Remove unwanted objects, people, text, or watermarks from any photo — 100% in your browser. No upload, no signup, no watermark. Your photos never leave your device.",
+    "Remove unwanted objects, people, text, or watermarks from any photo — 100% in your browser. No upload, no signup, no watermark. Photos never leave your device.",
   /** Bare domain (no protocol), e.g. for display + sitemap. */
   domain,
   /** Canonical site origin (protocol + domain, no trailing slash). */
