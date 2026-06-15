@@ -18,6 +18,9 @@ import {
 // next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
 // via dynamic import() inside onErase, on the user's first erase.
 import type { InpaintStatus } from "./inpaint/runInpaint";
+// Type-only imports for the SAM (click-to-select) runtime — same lazy-load story:
+// the onnxruntime + SlimSAM chunk is pulled in only on the first object click.
+import type { SamContext, SegmentStatus } from "./segment/runSegment";
 
 /**
  * EraserApp — the /app editor island (client:only="react").
@@ -57,6 +60,20 @@ export default function EraserApp() {
   const [eraseStatus, setEraseStatus] = useState<InpaintStatus | null>(null);
   const [eraseError, setEraseError] = useState<string | null>(null);
 
+  // --- Click-to-select (SAM) state ---
+  // `selectMode` true = click an object to auto-select it (the headline feature,
+  // default per D3); false = manual brush. `segmenting` gates the UI while the
+  // SAM models download / encode / decode. `segStatus` drives the progress
+  // overlay. The per-image SAM context (encoder embeddings) lives in a ref and is
+  // (re)built lazily on the first click of each image, then disposed on change.
+  const [selectMode, setSelectMode] = useState(true);
+  const [segmenting, setSegmenting] = useState(false);
+  const [segStatus, setSegStatus] = useState<SegmentStatus | null>(null);
+  const samContextRef = useRef<SamContext | null>(null);
+  // Indicates which image the current SAM context was built for, so we know to
+  // rebuild it after an erase swaps the bitmap (same dims, new pixels).
+  const samBitmapRef = useRef<ImageBitmap | null>(null);
+
   // --- Compare / download state (commit 8) ---
   // `hasEdited` is true once at least one erase has happened, which unlocks the
   // Compare slider, Download, and Revert controls. `compareMode` swaps the brush
@@ -76,6 +93,12 @@ export default function EraserApp() {
   const dragDepth = useRef(0);
 
   const releaseImage = useCallback(() => {
+    // Dispose any SAM encoder context (frees the held embedding tensors).
+    if (samContextRef.current) {
+      samContextRef.current.dispose();
+      samContextRef.current = null;
+    }
+    samBitmapRef.current = null;
     if (bitmapRef.current) {
       bitmapRef.current.close();
       bitmapRef.current = null;
@@ -174,6 +197,45 @@ export default function EraserApp() {
       setEraseStatus(null);
     }
   }, [image, mask, erasing]);
+
+  // --- Click-to-select: encode the image once (lazily, on first click), then
+  // run SAM's decoder for the clicked point and stamp the resulting object mask
+  // into the shared mask buffer (the same buffer Erase consumes). The encoder
+  // context is rebuilt whenever the live bitmap changed (e.g. after an erase). ---
+  const onSelectClick = useCallback(
+    async (sx: number, sy: number) => {
+      if (!image || segmenting || erasing) return;
+      setEraseError(null);
+      setSegmenting(true);
+      setSegStatus(null);
+      try {
+        const { createSamContext } = await import("./segment/runSegment");
+        // (Re)build the per-image context if missing or stale (bitmap swapped).
+        if (!samContextRef.current || samBitmapRef.current !== image.bitmap) {
+          samContextRef.current?.dispose();
+          samContextRef.current = await createSamContext(
+            image.bitmap,
+            image.width,
+            image.height,
+            (s) => setSegStatus(s),
+          );
+          samBitmapRef.current = image.bitmap;
+        }
+        const maskBits = await samContextRef.current.segment(sx, sy);
+        // Stamp the selection into the shared mask (additive, undoable).
+        mask.stampMask(maskBits, image.width, image.height, "add");
+      } catch (e) {
+        console.error("[segment] failed", e);
+        setEraseError(
+          "Couldn’t select that — your device may not support on-device AI, or the model failed to load. You can still brush manually.",
+        );
+      } finally {
+        setSegmenting(false);
+        setSegStatus(null);
+      }
+    },
+    [image, mask, segmenting, erasing],
+  );
 
   // --- Revert to the pristine original (3-include). Frees the current result
   // unless it IS the original, points the current bitmap back at the original. ---
@@ -300,8 +362,59 @@ export default function EraserApp() {
       {/* Toolbars — only meaningful once an image is loaded. */}
       {image && phase === "ready" && (
         <>
-          {/* Brush controls hide in Compare mode (the slider is read-only). */}
-          {!compareMode && <BrushToolbar mask={mask} />}
+          {/* Mode toggle (Select / Brush) + brush controls — hidden in Compare. */}
+          {!compareMode && (
+            <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-4 py-2">
+              <div
+                className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5"
+                role="group"
+                aria-label="Selection mode"
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectMode(true)}
+                  aria-pressed={selectMode}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    selectMode
+                      ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                      : "text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                  }`}
+                  title="Click an object to select it automatically"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9 11.2V6a2 2 0 0 1 4 0v4.5" />
+                    <path d="M13 10.5V4a2 2 0 0 1 4 0v8" />
+                    <path d="M17 10.5a2 2 0 0 1 4 0V16a6 6 0 0 1-6 6h-2a8 8 0 0 1-7-4l-2.5-4a2 2 0 0 1 3.5-2L9 13" />
+                  </svg>
+                  Click to select
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectMode(false)}
+                  aria-pressed={!selectMode}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    !selectMode
+                      ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                      : "text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                  }`}
+                  title="Manually brush over the area to erase"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+                    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+                  </svg>
+                  Brush
+                </button>
+              </div>
+              {selectMode ? (
+                <p className="text-xs text-[var(--color-fg-subtle)]">
+                  Click an object to select it — then refine with the brush if needed.
+                </p>
+              ) : (
+                <BrushToolbar mask={mask} />
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-border)] px-4 py-2 text-sm">
             <span className="font-medium text-[var(--color-fg)] truncate max-w-[14rem]" title={image.name}>
               {image.name}
@@ -414,7 +527,12 @@ export default function EraserApp() {
           compareMode && originalBitmapRef.current ? (
             <BeforeAfterSlider before={originalBitmapRef.current} after={image.bitmap} />
           ) : (
-            <CanvasEditor bitmap={image.bitmap} mask={mask} />
+            <CanvasEditor
+              bitmap={image.bitmap}
+              mask={mask}
+              selectMode={selectMode}
+              onSelectClick={onSelectClick}
+            />
           )
         ) : phase === "decoding" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
@@ -479,8 +597,45 @@ export default function EraserApp() {
           </div>
         )}
 
-        {/* Erase error toast. */}
-        {eraseError && !erasing && (
+        {/* Segment (click-to-select) progress overlay. Encode is the slow step
+            the first time per image; decode is near-instant after. */}
+        {segmenting && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[2px]"
+            style={{ backgroundColor: "color-mix(in srgb, var(--color-bg) 70%, transparent)" }}
+          >
+            <div className="w-full max-w-xs rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-5 text-center shadow-xl">
+              <Spinner />
+              <p className="mt-3 font-medium text-[var(--color-fg)]">
+                {segStatus?.phase === "download"
+                  ? "Downloading the AI model…"
+                  : segStatus?.phase === "compile"
+                    ? "Preparing the AI model…"
+                    : "Analyzing your photo…"}
+              </p>
+              {segStatus?.phase === "download" && (
+                <>
+                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-150"
+                      style={{ width: `${Math.round((segStatus.progress ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">
+                    One-time ~40&nbsp;MB download · cached for next time · stays on your device
+                  </p>
+                </>
+              )}
+              {segStatus?.phase !== "download" && (
+                <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">
+                  Running entirely on your device — your photo never leaves the browser.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Erase error toast (also used for segment failures). */}
+        {eraseError && !erasing && !segmenting && (
           <div className="absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
             <div className="flex max-w-md items-start gap-3 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-bg)] px-4 py-3 text-sm shadow-lg">
               <span className="mt-0.5 text-[var(--color-danger)]" aria-hidden="true">

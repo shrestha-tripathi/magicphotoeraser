@@ -22,6 +22,10 @@ import type { BrushMaskApi } from "./useBrushMask";
 interface Props {
   bitmap: ImageBitmap;
   mask: BrushMaskApi;
+  /** When true, a click selects an object (SAM) instead of painting a stroke. */
+  selectMode?: boolean;
+  /** Fired with SOURCE-space coords when the user clicks in select mode. */
+  onSelectClick?: (sx: number, sy: number) => void;
 }
 
 interface Fit {
@@ -33,7 +37,7 @@ interface Fit {
 
 const ACCENT = "124, 58, 237"; // var(--color-accent) violet-600, as RGB for rgba()
 
-export default function CanvasEditor({ bitmap, mask }: Props) {
+export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelectClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -44,6 +48,13 @@ export default function CanvasEditor({ bitmap, mask }: Props) {
   const paintingRef = useRef(false);
 
   const { maskCanvas, revision, brushSize, mode, beginStroke, extendStroke, endStroke } = mask;
+
+  // selectMode / onSelectClick read inside memoized pointer handlers via refs so
+  // the handlers don't need to be re-created (and lose pointer capture) on toggle.
+  const selectModeRef = useRef(selectMode);
+  selectModeRef.current = selectMode;
+  const onSelectClickRef = useRef(onSelectClick);
+  onSelectClickRef.current = onSelectClick;
 
   // --- Fit + draw the image canvas (mirrors the old ImageStage logic) ---
   useEffect(() => {
@@ -155,6 +166,12 @@ export default function CanvasEditor({ bitmap, mask }: Props) {
       if (e.button !== 0 && e.pointerType === "mouse") return;
       const p = toSource(e.clientX, e.clientY);
       if (!p) return;
+      // Select mode: a click hands the source-space point to SAM; no painting.
+      if (selectModeRef.current) {
+        moveCursor(p.cssX, p.cssY);
+        onSelectClickRef.current?.(p.sx, p.sy);
+        return;
+      }
       (e.target as Element).setPointerCapture?.(e.pointerId);
       paintingRef.current = true;
       beginStroke(p.sx, p.sy);
@@ -167,7 +184,7 @@ export default function CanvasEditor({ bitmap, mask }: Props) {
     (e: React.PointerEvent) => {
       const p = toSource(e.clientX, e.clientY);
       if (p) moveCursor(p.cssX, p.cssY);
-      if (!paintingRef.current) return;
+      if (selectModeRef.current || !paintingRef.current) return;
       // Capture every intermediate sample for smooth fast drags. Per spec
       // getCoalescedEvents() CAN return an empty list (some platforms / when
       // there are no buffered moves) — fall back to the event itself so a
@@ -204,8 +221,12 @@ export default function CanvasEditor({ bitmap, mask }: Props) {
         <canvas
           ref={maskCanvasRef}
           className="absolute left-0 top-0 block max-h-full max-w-full rounded-lg"
-          style={{ touchAction: "none", cursor: "none" }}
-          aria-label="Selection mask — brush over what you want to erase"
+          style={{ touchAction: "none", cursor: selectMode ? "crosshair" : "none" }}
+          aria-label={
+            selectMode
+              ? "Click an object to select it for erasing"
+              : "Selection mask — brush over what you want to erase"
+          }
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={finishStroke}
@@ -228,7 +249,7 @@ export default function CanvasEditor({ bitmap, mask }: Props) {
               mode === "add"
                 ? `rgba(${ACCENT}, 0.12)`
                 : "rgba(220, 38, 38, 0.10)",
-            opacity: hoverInside ? 1 : 0,
+            opacity: hoverInside && !selectMode ? 1 : 0,
             transition: "opacity 120ms ease",
           }}
         />
