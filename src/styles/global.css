@@ -117,3 +117,136 @@ body {
   border: 2px solid var(--color-bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
+
+/*
+  First-run onboarding tour (src/app/onboardingTour.ts) — spotlight + popover,
+  injected into <body> outside React. The "hole" over the highlighted element is
+  the 9999px outset box-shadow trick (no SVG mask / canvas — works everywhere and
+  animates with a plain transition). Both themes via var(--color-*).
+*/
+@keyframes mpe-tour-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mpe-tour-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.mpe-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  animation: mpe-tour-fade-in 200ms ease-out both;
+}
+.mpe-tour-spotlight {
+  position: fixed;
+  z-index: 81;
+  border-radius: 10px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 3px var(--color-accent),
+    0 0 0 9999px rgba(0, 0, 0, 0.6);
+  transition: top 180ms ease, left 180ms ease, width 180ms ease, height 180ms ease;
+}
+.mpe-tour-popover {
+  position: fixed;
+  z-index: 82;
+  box-sizing: border-box;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 0.875rem 1rem 0.75rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.14);
+  animation: mpe-tour-pop-in 220ms ease-out both;
+  transition: top 180ms ease, left 180ms ease;
+}
+.mpe-tour--leaving {
+  opacity: 0 !important;
+  transition: opacity 180ms ease !important;
+}
+.mpe-tour-skip {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fg-subtle);
+  cursor: pointer;
+}
+.mpe-tour-skip:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-fg);
+}
+.mpe-tour-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--color-fg);
+  margin: 0 1.5rem 0.25rem 0;
+}
+.mpe-tour-body {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--color-fg-muted);
+}
+.mpe-tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+}
+.mpe-tour-counter {
+  font-size: 0.75rem;
+  color: var(--color-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.mpe-tour-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+.mpe-tour-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 7px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+.mpe-tour-btn--ghost {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-fg-muted);
+}
+.mpe-tour-btn--ghost:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-fg);
+}
+.mpe-tour-btn--primary {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+.mpe-tour-btn--primary:hover {
+  opacity: 0.9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mpe-tour-backdrop,
+  .mpe-tour-popover {
+    animation: none !important;
+  }
+  .mpe-tour-spotlight {
+    transition: none !important;
+  }
+}
+@media (max-width: 420px) {
+  .mpe-tour-popover {
+    width: calc(100vw - 24px) !important;
+    left: 12px !important;
+  }
+}

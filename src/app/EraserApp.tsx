@@ -14,6 +14,9 @@ import {
   downloadBitmap,
   type DownloadFormat,
 } from "./download";
+// First-run onboarding tour (~6 KB vanilla DOM, no runtime dep — safe to import
+// statically; it lazily injects its overlay only when started).
+import { startTour, hasSeenTour } from "./onboardingTour";
 // Type-only import: erased at build time, so the heavy onnxruntime chunk it lives
 // next to is NOT pulled into the initial /app bundle. The runtime is loaded lazily
 // via dynamic import() inside onErase, on the user's first erase.
@@ -434,6 +437,29 @@ export default function EraserApp() {
   // --- Free the bitmap if the island unmounts ---
   useEffect(() => releaseImage, [releaseImage]);
 
+  // --- First-run onboarding tour (commit 13) ---
+  // Fire ONCE, the first time a photo successfully decodes (phase → "ready"),
+  // ~900 ms after the editor toolbar paints so it doesn't crowd the transition.
+  // `tourFiredRef` guards against re-firing on later image swaps within a session;
+  // the localStorage seen-bit (inside startTour) guards across sessions. Skipped
+  // entirely for returning users — hasSeenTour() short-circuits before the timer.
+  const tourFiredRef = useRef(false);
+  useEffect(() => {
+    if (phase !== "ready" || tourFiredRef.current || hasSeenTour()) return;
+    tourFiredRef.current = true;
+    const t = window.setTimeout(() => {
+      // Only if still on the editor and a tour isn't already open.
+      if (document.querySelector('[data-tour-anchor="select"]')) startTour();
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [phase]);
+
+  // Replay handler for the "?" button — always forces the tour regardless of the
+  // seen-bit. Defined here so the toolbar button can call it.
+  const replayTour = useCallback(() => {
+    startTour({ force: true });
+  }, []);
+
   // --- Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo ---
   const readyRef = useRef(false);
   readyRef.current = phase === "ready";
@@ -521,6 +547,7 @@ export default function EraserApp() {
                 className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5"
                 role="group"
                 aria-label="Selection mode"
+                data-tour-anchor="select"
               >
                 <button
                   type="button"
@@ -565,6 +592,7 @@ export default function EraserApp() {
                     className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5"
                     role="group"
                     aria-label="Point type"
+                    data-tour-anchor="refine"
                   >
                     <button
                       type="button"
@@ -664,6 +692,7 @@ export default function EraserApp() {
                   onClick={onErase}
                   disabled={(!mask.hasMask && selPoints.length === 0) || erasing}
                   className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-1.5 font-semibold text-[var(--color-accent-fg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  data-tour-anchor="erase"
                   title={
                     mask.hasMask || selPoints.length > 0
                       ? "Erase the selected area"
@@ -744,6 +773,20 @@ export default function EraserApp() {
                 className="rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
               >
                 Start over
+              </button>
+              {/* Replay the onboarding tour (commit 13). Icon-only, unobtrusive. */}
+              <button
+                type="button"
+                onClick={replayTour}
+                aria-label="Show the quick tour"
+                title="Show the quick tour"
+                className="inline-flex items-center justify-center rounded-md border border-[var(--color-border)] p-1.5 text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <path d="M12 17h.01" />
+                </svg>
               </button>
             </div>
           </div>
