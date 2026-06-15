@@ -178,12 +178,24 @@ async function getSessions(onStatus?: (s: SegmentStatus) => void): Promise<SamSe
 }
 
 /**
+ * A single user click in SOURCE-image coordinates. `positive` true = "include
+ * this region" (SAM label 1), false = "exclude this region" (SAM label 0).
+ */
+export interface SamPoint {
+  sx: number;
+  sy: number;
+  positive: boolean;
+}
+
+/**
  * A per-image SAM context: holds the encoder's two embedding tensors so repeated
  * clicks only pay the (cheap) decoder cost. Create once per loaded image; call
- * `segment(sx, sy)` on each click; call `dispose()` when the image changes.
+ * `segment(points)` with the accumulated +/- points on each refine; call
+ * `dispose()` when the image changes.
  */
 export interface SamContext {
-  segment(sx: number, sy: number): Promise<Uint8Array>;
+  /** Run the decoder for the accumulated point set → source-res mask bits (1=object). */
+  segment(points: SamPoint[]): Promise<Uint8Array>;
   readonly geom: SamGeometry;
   readonly backend: Backend;
   dispose(): void;
@@ -227,12 +239,34 @@ export async function createSamContext(
 
   let disposed = false;
 
-  const segment = async (sx: number, sy: number): Promise<Uint8Array> => {
+  const segment = async (points: SamPoint[]): Promise<Uint8Array> => {
     if (disposed) throw new Error("SAM context disposed");
-    const [mx, my] = clickToModel(sx, sy, geom);
-    // input_points f32 [1,1,N,2]; input_labels int64 [1,1,N] (1 = foreground).
-    const inputPoints = new ort.Tensor("float32", Float32Array.from([mx, my]), [1, 1, 1, 2]);
-    const inputLabels = new ort.Tensor("int64", BigInt64Array.from([1n]), [1, 1, 1]);
+    if (points.length === 0) {
+      // No prompts → empty mask (caller treats as "nothing selected").
+      return new Uint8Array(srcW * srcH);
+    }
+
+    // Build the point/label arrays in SAM 1024-space. 🔑 EMPIRICALLY VERIFIED
+    // (python probe before coding): the transformers.js SlimSAM export REQUIRES a
+    // trailing padding point [0,0] with label -1 — without it even a single click
+    // produces a mask that bleeds across the whole image (50k px vs 11k px clean).
+    // positive click → label 1 (include), negative → label 0 (exclude/subtract).
+    const n = points.length + 1; // +1 padding point
+    const coords = new Float32Array(n * 2);
+    const labels = new BigInt64Array(n);
+    points.forEach((p, i) => {
+      const [mx, my] = clickToModel(p.sx, p.sy, geom);
+      coords[i * 2] = mx;
+      coords[i * 2 + 1] = my;
+      labels[i] = p.positive ? 1n : 0n;
+    });
+    // padding point at the end: (0,0) / label -1
+    coords[points.length * 2] = 0;
+    coords[points.length * 2 + 1] = 0;
+    labels[points.length] = -1n;
+
+    const inputPoints = new ort.Tensor("float32", coords, [1, 1, n, 2]);
+    const inputLabels = new ort.Tensor("int64", labels, [1, 1, n]);
     // Fresh embedding tensors per call (copied buffers) — see note above.
     const imageEmbeddings = new ort.Tensor("float32", embData.slice(), embDims as number[]);
     const imagePositionalEmbeddings = new ort.Tensor("float32", posData.slice(), posDims as number[]);
@@ -247,9 +281,15 @@ export async function createSamContext(
     const masks = decOut.pred_masks.data as Float32Array; // [3,256,256] flattened
     const maskSide = 256;
     const stride = maskSide * maskSide;
-    // Pick the highest-IoU of the 3 candidate masks.
-    let best = 0;
-    for (let i = 1; i < iou.length; i++) if (iou[i] > iou[best]) best = i;
+    // 🔑 EMPIRICALLY VERIFIED mask-index selection: pick the highest-IoU candidate,
+    // BUT exclude index 0 once there is more than one real point. idx 0 is SAM's
+    // greedy "whole scene" mask; on a refine it reports a misleadingly-high IoU on a
+    // noise-riddled mask (measured 40k-px garbage vs the correct 9k-px refined mask
+    // at idx 1). With a single point, idx 0 can legitimately be the whole object, so
+    // only narrow the candidates when refining.
+    const startIdx = points.length > 1 ? 1 : 0;
+    let best = startIdx;
+    for (let i = startIdx + 1; i < iou.length; i++) if (iou[i] > iou[best]) best = i;
     const bestLogits = masks.subarray(best * stride, (best + 1) * stride);
     return maskLogitsToSource(bestLogits as Float32Array, maskSide, geom);
   };

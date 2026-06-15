@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrushMaskApi } from "./useBrushMask";
+import type { SamPoint } from "./segment/runSegment";
 
 /**
- * CanvasEditor — the paint surface. Two stacked canvases sharing identical
+ * CanvasEditor — the paint surface. Three stacked canvases sharing identical
  * DPR-aware "contain" geometry:
- *   1. image canvas  — the decoded bitmap (same fit logic as the old ImageStage)
- *   2. mask canvas   — the user's selection, tinted accent + semi-transparent,
- *                      redrawn from the hook's source-res mask on every revision
+ *   1. image canvas   — the decoded bitmap (same fit logic as the old ImageStage)
+ *   2. mask canvas    — the user's COMMITTED selection (brush strokes + stamped
+ *                       SAM masks), tinted accent + semi-transparent
+ *   3. preview canvas — the PENDING SAM selection (not yet committed): a distinct
+ *                       cyan tint + outline + the +/- point dots, so it reads as
+ *                       "proposed, refine me" vs the violet committed mask
  * A lightweight DOM brush-cursor ring tracks the pointer (no canvas redraw).
  *
  * Coordinate spaces:
@@ -24,8 +28,23 @@ interface Props {
   mask: BrushMaskApi;
   /** When true, a click selects an object (SAM) instead of painting a stroke. */
   selectMode?: boolean;
-  /** Fired with SOURCE-space coords when the user clicks in select mode. */
-  onSelectClick?: (sx: number, sy: number) => void;
+  /**
+   * Fired with SOURCE-space coords + polarity when the user clicks in select
+   * mode. `positive` is true for an "include" point, false for "exclude" — it's
+   * derived from the toolbar +/- toggle, but an alt/right-click forces negative.
+   */
+  onSelectClick?: (sx: number, sy: number, positive: boolean) => void;
+  /** The pending SAM selection mask (source-res, 1=selected) to preview, or null. */
+  previewMask?: Uint8Array | null;
+  /** Source dimensions of previewMask (== bitmap dims; passed for clarity/guards). */
+  previewWidth?: number;
+  previewHeight?: number;
+  /** The accumulated +/- points, drawn as dots on the preview layer. */
+  previewPoints?: SamPoint[];
+  /** Bumps whenever the preview mask/points change, to trigger a repaint. */
+  previewRevision?: number;
+  /** The active point polarity from the toolbar (drives the cursor color). */
+  pointPositive?: boolean;
 }
 
 interface Fit {
@@ -36,11 +55,22 @@ interface Fit {
 }
 
 const ACCENT = "124, 58, 237"; // var(--color-accent) violet-600, as RGB for rgba()
+const PREVIEW = "6, 182, 212"; // cyan-500 — distinct from the violet committed mask
 
-export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelectClick }: Props) {
+export default function CanvasEditor({
+  bitmap,
+  mask,
+  selectMode = false,
+  onSelectClick,
+  previewMask = null,
+  previewPoints = [],
+  previewRevision = 0,
+  pointPositive = true,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<Fit | null>(null);
   const fitRef = useRef<Fit | null>(null);
@@ -55,13 +85,16 @@ export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelec
   selectModeRef.current = selectMode;
   const onSelectClickRef = useRef(onSelectClick);
   onSelectClickRef.current = onSelectClick;
+  const pointPositiveRef = useRef(pointPositive);
+  pointPositiveRef.current = pointPositive;
 
   // --- Fit + draw the image canvas (mirrors the old ImageStage logic) ---
   useEffect(() => {
     const container = containerRef.current;
     const imageCanvas = imageCanvasRef.current;
     const maskEl = maskCanvasRef.current;
-    if (!container || !imageCanvas || !maskEl) return;
+    const previewEl = previewCanvasRef.current;
+    if (!container || !imageCanvas || !maskEl || !previewEl) return;
 
     const draw = () => {
       const cw = container.clientWidth;
@@ -74,7 +107,7 @@ export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelec
       const backingW = Math.round(displayWidth * dpr);
       const backingH = Math.round(displayHeight * dpr);
 
-      for (const c of [imageCanvas, maskEl]) {
+      for (const c of [imageCanvas, maskEl, previewEl]) {
         c.style.width = `${displayWidth}px`;
         c.style.height = `${displayHeight}px`;
         if (c.width !== backingW || c.height !== backingH) {
@@ -134,6 +167,75 @@ export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelec
     mctx.globalCompositeOperation = "source-over";
   }, [revision, fit, maskCanvas]);
 
+  // --- Repaint the PENDING preview layer (cyan tint + outline + point dots) ---
+  // Distinct from the committed violet mask so the user reads it as "proposed,
+  // refine me". Built from the source-res preview mask via a tiny offscreen canvas
+  // (no per-pixel loop on the display surface), then the +/- dots on top.
+  const previewSrcRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const pv = previewCanvasRef.current;
+    if (!pv || !fit) return;
+    const pctx = pv.getContext("2d");
+    if (!pctx) return;
+    pctx.clearRect(0, 0, pv.width, pv.height);
+    if (!previewMask || previewMask.length === 0) return;
+
+    // Rasterize the source-res 0/1 mask into an offscreen RGBA canvas once, then
+    // scale it up to the display backing store (browser handles the resampling).
+    let off = previewSrcRef.current;
+    if (!off || off.width !== bitmap.width || off.height !== bitmap.height) {
+      off = document.createElement("canvas");
+      off.width = bitmap.width;
+      off.height = bitmap.height;
+      previewSrcRef.current = off;
+    }
+    const octx = off.getContext("2d");
+    if (!octx) return;
+    const id = octx.createImageData(bitmap.width, bitmap.height);
+    const [pr, pg, pb] = PREVIEW.split(",").map((s) => parseInt(s, 10));
+    const data = id.data;
+    for (let i = 0; i < previewMask.length; i++) {
+      if (previewMask[i]) {
+        const j = i * 4;
+        data[j] = pr;
+        data[j + 1] = pg;
+        data[j + 2] = pb;
+        data[j + 3] = 150; // ~0.59 alpha fill
+      }
+    }
+    octx.putImageData(id, 0, 0);
+    pctx.imageSmoothingEnabled = true;
+    pctx.imageSmoothingQuality = "high";
+    pctx.drawImage(off, 0, 0, pv.width, pv.height);
+
+    // Draw the +/- point dots in DISPLAY space (scaled from source coords).
+    const sx = pv.width / bitmap.width;
+    const sy = pv.height / bitmap.height;
+    const r = Math.max(5, Math.round(7 * (fit.dpr || 1)));
+    for (const p of previewPoints) {
+      const cx = p.sx * sx;
+      const cy = p.sy * sy;
+      pctx.beginPath();
+      pctx.arc(cx, cy, r, 0, Math.PI * 2);
+      pctx.fillStyle = p.positive ? "rgba(22, 163, 74, 0.95)" : "rgba(220, 38, 38, 0.95)";
+      pctx.fill();
+      pctx.lineWidth = Math.max(1.5, r * 0.28);
+      pctx.strokeStyle = "rgba(255,255,255,0.95)";
+      pctx.stroke();
+      // a small +/- glyph
+      pctx.strokeStyle = "rgba(255,255,255,0.98)";
+      pctx.lineWidth = Math.max(1.5, r * 0.3);
+      pctx.beginPath();
+      pctx.moveTo(cx - r * 0.5, cy);
+      pctx.lineTo(cx + r * 0.5, cy);
+      if (p.positive) {
+        pctx.moveTo(cx, cy - r * 0.5);
+        pctx.lineTo(cx, cy + r * 0.5);
+      }
+      pctx.stroke();
+    }
+  }, [previewRevision, fit, previewMask, previewPoints, bitmap]);
+
   // --- Pointer painting ---
   const toSource = useCallback((clientX: number, clientY: number) => {
     const maskEl = maskCanvasRef.current;
@@ -163,13 +265,20 @@ export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelec
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (e.button !== 0 && e.pointerType === "mouse") return;
+      // In select mode we ALSO accept right-click (button 2) as a shortcut for a
+      // negative point; in brush mode only the primary button paints.
+      const isSelect = selectModeRef.current;
+      if (e.pointerType === "mouse" && e.button !== 0 && !(isSelect && e.button === 2)) return;
       const p = toSource(e.clientX, e.clientY);
       if (!p) return;
-      // Select mode: a click hands the source-space point to SAM; no painting.
-      if (selectModeRef.current) {
+      // Select mode: a click hands the source-space point + polarity to SAM; no
+      // painting. Polarity = toolbar toggle, but alt-click OR right-click forces
+      // negative (the desktop power-user shortcut; mobile uses the toggle).
+      if (isSelect) {
+        const forcedNegative = e.altKey || e.button === 2;
+        const positive = forcedNegative ? false : pointPositiveRef.current;
         moveCursor(p.cssX, p.cssY);
-        onSelectClickRef.current?.(p.sx, p.sy);
+        onSelectClickRef.current?.(p.sx, p.sy, positive);
         return;
       }
       (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -231,11 +340,23 @@ export default function CanvasEditor({ bitmap, mask, selectMode = false, onSelec
           onPointerMove={onPointerMove}
           onPointerUp={finishStroke}
           onPointerCancel={finishStroke}
+          onContextMenu={(e) => {
+            // In select mode a right-click is a negative point (handled in
+            // pointerdown) — suppress the browser menu so it doesn't interrupt.
+            if (selectMode) e.preventDefault();
+          }}
           onPointerEnter={() => setHoverInside(true)}
           onPointerLeave={() => {
             setHoverInside(false);
             finishStroke();
           }}
+        />
+        {/* Pending SAM selection preview (cyan + point dots), above the mask but
+            below the pointer surface so it never intercepts clicks. */}
+        <canvas
+          ref={previewCanvasRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 block max-h-full max-w-full rounded-lg"
         />
         {/* Brush-size cursor ring (DOM, not canvas) */}
         <div

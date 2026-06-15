@@ -20,7 +20,7 @@ import {
 import type { InpaintStatus } from "./inpaint/runInpaint";
 // Type-only imports for the SAM (click-to-select) runtime — same lazy-load story:
 // the onnxruntime + SlimSAM chunk is pulled in only on the first object click.
-import type { SamContext, SegmentStatus } from "./segment/runSegment";
+import type { SamContext, SamPoint, SegmentStatus } from "./segment/runSegment";
 
 /**
  * EraserApp — the /app editor island (client:only="react").
@@ -74,6 +74,24 @@ export default function EraserApp() {
   // rebuild it after an erase swaps the bitmap (same dims, new pixels).
   const samBitmapRef = useRef<ImageBitmap | null>(null);
 
+  // --- Pending selection (commit 11: multi-point refine) ---
+  // The accumulated +/- points and the LIVE preview mask they produce. This is
+  // SEPARATE from the committed brush-mask buffer: every +/- click re-runs the
+  // decoder with ALL points and replaces the preview, so negative points can
+  // subtract. The preview only merges into the real mask on Erase or when the
+  // user leaves select mode (see commitSelection). `pointPositive` is the active
+  // toolbar polarity. `selReqRef` is a monotonic id so a slow decoder result from
+  // an earlier click can't overwrite a newer one (latest-click-wins race guard).
+  const [selPoints, setSelPoints] = useState<SamPoint[]>([]);
+  const [previewMask, setPreviewMask] = useState<Uint8Array | null>(null);
+  const [previewRev, setPreviewRev] = useState(0);
+  const [pointPositive, setPointPositive] = useState(true);
+  const selPointsRef = useRef<SamPoint[]>([]);
+  selPointsRef.current = selPoints;
+  const previewMaskRef = useRef<Uint8Array | null>(null);
+  previewMaskRef.current = previewMask;
+  const selReqRef = useRef(0);
+
   // --- Compare / download state (commit 8) ---
   // `hasEdited` is true once at least one erase has happened, which unlocks the
   // Compare slider, Download, and Revert controls. `compareMode` swaps the brush
@@ -99,6 +117,12 @@ export default function EraserApp() {
       samContextRef.current = null;
     }
     samBitmapRef.current = null;
+    // Drop any pending SAM selection (points + preview) and invalidate in-flight
+    // decodes so a late result can't land on the next image.
+    selReqRef.current++;
+    setSelPoints([]);
+    setPreviewMask(null);
+    setPreviewRev((r) => r + 1);
     if (bitmapRef.current) {
       bitmapRef.current.close();
       bitmapRef.current = null;
@@ -162,10 +186,57 @@ export default function EraserApp() {
     setPhase("empty");
   }, [releaseImage]);
 
+  // --- Commit the pending SAM preview into the real (undoable) mask buffer, then
+  // clear the pending state. Called before Erase and when leaving select mode so
+  // the refined selection is never lost. No-op if there's nothing pending. ---
+  const commitSelection = useCallback(() => {
+    selReqRef.current++; // invalidate any in-flight decode
+    const pending = previewMaskRef.current;
+    if (pending && image) {
+      mask.stampMask(pending, image.width, image.height, "add");
+    }
+    setSelPoints([]);
+    setPreviewMask(null);
+    setPreviewRev((r) => r + 1);
+  }, [image, mask]);
+
+  // --- Discard the pending selection without committing (the "Clear selection"
+  // button, and on image change / mode toggles). ---
+  const clearSelection = useCallback(() => {
+    selReqRef.current++; // invalidate any in-flight decode
+    setSelPoints([]);
+    setPreviewMask(null);
+    setPreviewRev((r) => r + 1);
+    setSegmenting(false);
+    setSegStatus(null);
+  }, []);
+
+  // --- Switch between Click-to-select and Brush. Leaving select mode COMMITS the
+  // pending preview (so the user doesn't lose a refined selection by toggling);
+  // entering select mode starts from a clean slate. ---
+  const switchMode = useCallback(
+    (toSelect: boolean) => {
+      if (toSelect === selectMode) return;
+      if (toSelect) clearSelection();
+      else commitSelection();
+      setSelectMode(toSelect);
+    },
+    [selectMode, commitSelection, clearSelection],
+  );
+
   // --- Erase: run the on-device inpainter on the painted mask (Decision 2A:
   // result replaces the canvas in place so the user can keep erasing more) ---
   const onErase = useCallback(async () => {
-    if (!image || !mask.maskCanvas || !mask.hasMask || erasing) return;
+    if (!image || !mask.maskCanvas || erasing) return;
+    // There's something to erase if the mask buffer is already non-empty OR a
+    // pending SAM selection is showing. Read both from sources that are correct
+    // synchronously (the preview ref + the committed-stroke state).
+    const hasPending = previewMaskRef.current != null;
+    if (!mask.hasMask && !hasPending) return;
+    // Commit any pending SAM preview into the mask buffer first. stampMask draws
+    // to maskCanvas synchronously, so the canvas pixels are ready for inpaint even
+    // though the hook's hasMask COUNT only updates on the next render.
+    commitSelection();
     setEraseError(null);
     setErasing(true);
     setEraseStatus({ phase: "download", progress: 0 });
@@ -196,16 +267,23 @@ export default function EraserApp() {
       setErasing(false);
       setEraseStatus(null);
     }
-  }, [image, mask, erasing]);
+  }, [image, mask, erasing, commitSelection]);
 
   // --- Click-to-select: encode the image once (lazily, on first click), then
-  // run SAM's decoder for the clicked point and stamp the resulting object mask
-  // into the shared mask buffer (the same buffer Erase consumes). The encoder
-  // context is rebuilt whenever the live bitmap changed (e.g. after an erase). ---
+  // run SAM's decoder for the ACCUMULATED +/- points and show the result as a
+  // PENDING preview (commit 11). The preview is NOT baked into the mask buffer
+  // yet — that happens on Erase or when leaving select mode (commitSelection) —
+  // so a negative click can subtract from an over-greedy selection. ---
   const onSelectClick = useCallback(
-    async (sx: number, sy: number) => {
-      if (!image || segmenting || erasing) return;
+    async (sx: number, sy: number, positive: boolean) => {
+      if (!image || erasing) return;
       setEraseError(null);
+
+      // Append the new point and snapshot the full set for this request.
+      const points = [...selPointsRef.current, { sx, sy, positive }];
+      setSelPoints(points);
+      const reqId = ++selReqRef.current;
+
       setSegmenting(true);
       setSegStatus(null);
       try {
@@ -221,20 +299,29 @@ export default function EraserApp() {
           );
           samBitmapRef.current = image.bitmap;
         }
-        const maskBits = await samContextRef.current.segment(sx, sy);
-        // Stamp the selection into the shared mask (additive, undoable).
-        mask.stampMask(maskBits, image.width, image.height, "add");
+        const maskBits = await samContextRef.current.segment(points);
+        // Latest-click-wins: if a newer click already superseded this request (or
+        // the selection was cleared / image changed), drop this stale result.
+        if (reqId !== selReqRef.current) return;
+        setPreviewMask(maskBits);
+        setPreviewRev((r) => r + 1);
       } catch (e) {
         console.error("[segment] failed", e);
-        setEraseError(
-          "Couldn’t select that — your device may not support on-device AI, or the model failed to load. You can still brush manually.",
-        );
+        if (reqId === selReqRef.current) {
+          // Roll the failed point back out of the set so a retry is clean.
+          setSelPoints((prev) => prev.slice(0, -1));
+          setEraseError(
+            "Couldn’t select that — your device may not support on-device AI, or the model failed to load. You can still brush manually.",
+          );
+        }
       } finally {
-        setSegmenting(false);
-        setSegStatus(null);
+        if (reqId === selReqRef.current) {
+          setSegmenting(false);
+          setSegStatus(null);
+        }
       }
     },
-    [image, mask, segmenting, erasing],
+    [image, erasing],
   );
 
   // --- Revert to the pristine original (3-include). Frees the current result
@@ -247,9 +334,10 @@ export default function EraserApp() {
     bitmapRef.current = orig;
     setImage((img) => (img ? { ...img, bitmap: orig } : img));
     mask.clear();
+    clearSelection();
     setHasEdited(false);
     setCompareMode(false);
-  }, [image, mask]);
+  }, [image, mask, clearSelection]);
 
   // --- Download the current result (2c: format defaults to the source type) ---
   const onDownload = useCallback(async () => {
@@ -372,7 +460,7 @@ export default function EraserApp() {
               >
                 <button
                   type="button"
-                  onClick={() => setSelectMode(true)}
+                  onClick={() => switchMode(true)}
                   aria-pressed={selectMode}
                   className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     selectMode
@@ -390,7 +478,7 @@ export default function EraserApp() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelectMode(false)}
+                  onClick={() => switchMode(false)}
                   aria-pressed={!selectMode}
                   className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     !selectMode
@@ -407,9 +495,62 @@ export default function EraserApp() {
                 </button>
               </div>
               {selectMode ? (
-                <p className="text-xs text-[var(--color-fg-subtle)]">
-                  Click an object to select it — then refine with the brush if needed.
-                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* +/- point polarity toggle (mirrors the brush Add/Remove pill) */}
+                  <div
+                    className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5"
+                    role="group"
+                    aria-label="Point type"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPointPositive(true)}
+                      aria-pressed={pointPositive}
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
+                        pointPositive
+                          ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                          : "text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                      }`}
+                      title="Click to ADD a region to the selection"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPointPositive(false)}
+                      aria-pressed={!pointPositive}
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium transition-colors ${
+                        !pointPositive
+                          ? "bg-red-600 text-white"
+                          : "text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                      }`}
+                      title="Click to REMOVE a region from the selection (or alt/right-click)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                        <path d="M5 12h14" />
+                      </svg>
+                      Remove
+                    </button>
+                  </div>
+                  {selPoints.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-sm font-medium text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+                      title="Discard the current selection and start over"
+                    >
+                      Clear selection
+                    </button>
+                  ) : null}
+                  <p className="text-xs text-[var(--color-fg-subtle)]">
+                    {selPoints.length === 0
+                      ? "Click an object to select it — add or remove points to refine."
+                      : `${selPoints.length} point${selPoints.length === 1 ? "" : "s"} · refine, then Erase. Brush still works too.`}
+                  </p>
+                </div>
               ) : (
                 <BrushToolbar mask={mask} />
               )}
@@ -437,9 +578,13 @@ export default function EraserApp() {
                 <button
                   type="button"
                   onClick={onErase}
-                  disabled={!mask.hasMask || erasing}
+                  disabled={(!mask.hasMask && selPoints.length === 0) || erasing}
                   className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-1.5 font-semibold text-[var(--color-accent-fg)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                  title={mask.hasMask ? "Erase the selected area" : "Brush over something first"}
+                  title={
+                    mask.hasMask || selPoints.length > 0
+                      ? "Erase the selected area"
+                      : "Select or brush over something first"
+                  }
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
@@ -532,6 +677,12 @@ export default function EraserApp() {
               mask={mask}
               selectMode={selectMode}
               onSelectClick={onSelectClick}
+              previewMask={previewMask}
+              previewWidth={image.width}
+              previewHeight={image.height}
+              previewPoints={selPoints}
+              previewRevision={previewRev}
+              pointPositive={pointPositive}
             />
           )
         ) : phase === "decoding" ? (
