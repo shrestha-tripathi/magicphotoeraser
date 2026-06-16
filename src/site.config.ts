@@ -41,7 +41,7 @@ export const site = {
   url: siteUrl,
 
   /** Contact email for trust pages. */
-  contactEmail: env.PUBLIC_SITE_CONTACT_EMAIL ?? "hello@magicphotoeraser.com",
+  contactEmail: env.PUBLIC_SITE_CONTACT_EMAIL ?? "shrestha.tripathi@gmail.com",
   /** Public GitHub repo (optional; powers "open source" links). */
   githubRepo:
     env.PUBLIC_SITE_GITHUB_REPO ??
