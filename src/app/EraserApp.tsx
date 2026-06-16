@@ -56,6 +56,24 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Initial selection mode. On touch-primary (mobile) devices default to BRUSH
+ * (selectMode=false) so the FIRST interaction is INSTANT — painting needs no
+ * model at all, whereas click-to-select must download + encode the 38 MB SAM
+ * model (slow on mobile; on iOS it's forced onto the slower WASM EP — see
+ * capabilities.isIOS — and used to crash the tab). The heavy model then loads
+ * only when the user explicitly taps "Click to select." Desktop keeps
+ * click-to-select as the default: it's the headline feature and runs fast on WebGPU.
+ *
+ * `(pointer: coarse)` matches when the PRIMARY input is touch (phones/tablets);
+ * a desktop with a touchscreen still reports a fine primary pointer, so it stays
+ * on select. The /app island is client:only, so this only ever runs in-browser.
+ */
+function defaultSelectMode(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return true;
+  return !window.matchMedia("(pointer: coarse)").matches;
+}
+
 export default function EraserApp() {
   const [phase, setPhase] = useState<Phase>("empty");
   const [image, setImage] = useState<DecodedImage | null>(null);
@@ -79,7 +97,12 @@ export default function EraserApp() {
   // SAM models download / encode / decode. `segStatus` drives the progress
   // overlay. The per-image SAM context (encoder embeddings) lives in a ref and is
   // (re)built lazily on the first click of each image, then disposed on change.
-  const [selectMode, setSelectMode] = useState(true);
+  // `selectMode` true = click an object to auto-select it (the headline feature,
+  // default on DESKTOP per D3); false = manual brush (default on MOBILE so the
+  // first interaction is instant — no 38 MB model load until the user opts in via
+  // the "Click to select" toggle). See defaultSelectMode(). Lazy init so the
+  // matchMedia read happens once on mount, in-browser only.
+  const [selectMode, setSelectMode] = useState<boolean>(defaultSelectMode);
   const [segmenting, setSegmenting] = useState(false);
   const [segStatus, setSegStatus] = useState<SegmentStatus | null>(null);
   const samContextRef = useRef<SamContext | null>(null);
@@ -498,6 +521,10 @@ export default function EraserApp() {
   // unless the flag is present. Mounted early so it captures the whole session.
   useEffect(() => {
     mountDebugPanel();
+    debugFact(
+      "default mode",
+      defaultSelectMode() ? "select (desktop)" : "brush (mobile — instant, no model)",
+    );
   }, []);
 
   // --- First-run onboarding tour (commit 13) ---
