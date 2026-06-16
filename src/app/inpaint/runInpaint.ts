@@ -23,9 +23,10 @@
  */
 
 import * as ort from "onnxruntime-web/webgpu";
-import { pickBackend, type Backend } from "./capabilities";
+import { pickBackend, isIOS, type Backend } from "./capabilities";
 import { fetchModelBytes, type ProgressFn } from "./modelSource";
 import { MODEL_KEY, readCachedModel, writeCachedModel } from "./modelCache";
+import { debugFact } from "../debug";
 
 const ORT_VERSION = "1.26.0";
 // jsDelivr serves these wasm/mjs with `Cross-Origin-Resource-Policy: cross-origin`
@@ -52,12 +53,30 @@ function configureEnv(backend: Backend) {
     // only a race surface and is what throws "worker not ready" on real GPUs.
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
+  } else if (isIOS()) {
+    // 🩸 iOS WASM: SINGLE-THREADED, NO proxy worker. Threaded WASM allocates a
+    // SharedArrayBuffer sized for N worker threads (4 on a modern iPhone) that
+    // STAYS RESIDENT for the whole session. iOS WebKit reserves that shared
+    // memory aggressively and JETSAMS the tab to reclaim it — which is the
+    // post-erase crash a real-iPhone ?debug=1 trace pinned: every code line ran
+    // (erase DONE → setImage → repaint), one more heartbeat fired, then an abrupt
+    // kill ~1-2s later with no JS error (the OS, not the page). Single-threaded
+    // keeps the resident arena small enough to survive. Slower (1 core), but it
+    // COMPLETES; the per-image encode is cached so the cost is paid once.
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
   } else {
     const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
     ort.env.wasm.numThreads = Math.min(cores, 4);
     ort.env.wasm.proxy = true; // keep the (slow) WASM compute off the UI thread
   }
   _envBackend = backend;
+  // Surface the chosen ORT runtime config so a ?debug=1 trace confirms iOS is
+  // actually single-threaded (the fix) rather than us declaring victory blind.
+  debugFact(
+    "ORT runtime",
+    `${backend} · threads=${ort.env.wasm.numThreads} · proxy=${ort.env.wasm.proxy}`,
+  );
 }
 
 export interface InpaintStatus {

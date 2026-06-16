@@ -27,7 +27,7 @@
  */
 
 import * as ort from "onnxruntime-web/webgpu";
-import { pickBackend, type Backend } from "../inpaint/capabilities";
+import { pickBackend, isIOS, type Backend } from "../inpaint/capabilities";
 import {
   fetchSamModel,
   SAM_ENCODER_FILE,
@@ -72,6 +72,14 @@ function configureEnv(backend: Backend) {
     // running the WebGPU EP through the proxy Worker adds nothing but a race
     // surface and is what made create() throw "worker not ready" on real-GPU
     // machines (esp. on a retry after a wasm fallback left proxy=true).
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
+  } else if (isIOS()) {
+    // 🩸 iOS WASM: SINGLE-THREADED, NO proxy worker — same reason as runInpaint.
+    // Threaded WASM holds a per-thread-sized SharedArrayBuffer resident for the
+    // whole session; iOS WebKit jetsams the tab to reclaim it (the post-erase
+    // crash a real-iPhone ?debug=1 trace pinned). 1 thread keeps the arena small
+    // enough to survive. Slower, but the SAM encode is cached per image.
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
   } else {
