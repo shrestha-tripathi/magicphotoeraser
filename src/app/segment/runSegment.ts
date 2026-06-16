@@ -84,8 +84,10 @@ function configureEnv(backend: Backend) {
 
 export interface SegmentStatus {
   /** "download" while fetching models, "compile" while building sessions,
-   *  "encode" during the one-time per-image image encode. */
-  phase: "download" | "compile" | "encode";
+   *  "encode" during the one-time per-image image encode, "encode-done" right
+   *  after encoder.run() resolves (proves the heavy ViT forward pass survived —
+   *  the exact point iOS WebGPU jetsammed the tab; see capabilities.isIOS). */
+  phase: "download" | "compile" | "encode" | "encode-done";
   /** 0..1 for the download phase; undefined for indeterminate phases. */
   progress?: number;
 }
@@ -289,6 +291,10 @@ export async function createSamContext(
     SAM_SIZE,
   ]);
   const encOut = await encoder.run({ pixel_values: pixelValues });
+  // The heavy ViT forward pass SURVIVED — this is the exact call that jetsammed
+  // the tab on iOS WebGPU (last log line was "SAM encode" with no return). On
+  // WASM it completes; surface that so a ?debug=1 trace proves it on-device.
+  onStatus?.({ phase: "encode-done" });
   // Extract the embedding DATA (plain Float32Arrays) + shapes once. We must NOT
   // reuse the encoder's output Tensor objects directly across decoder.run() calls:
   // in WASM proxy mode ORT transfers (detaches) each input tensor's ArrayBuffer to
