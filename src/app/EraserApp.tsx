@@ -30,6 +30,10 @@ import type { InpaintStatus } from "./inpaint/runInpaint";
 // Type-only imports for the SAM (click-to-select) runtime — same lazy-load story:
 // the onnxruntime + SlimSAM chunk is pulled in only on the first object click.
 import type { SamContext, SamPoint, SegmentStatus } from "./segment/runSegment";
+// On-page debug mode (?debug=1) — prints real device runtime state + a live event
+// log so a user on a phone we can't attach devtools to can screenshot ground-truth
+// diagnostics for a crash we can't reproduce. No-op (and ~0 bytes) without the flag.
+import { mountDebugPanel, debugLog, debugFact } from "./debug";
 
 /**
  * EraserApp — the /app editor island (client:only="react").
@@ -173,6 +177,7 @@ export default function EraserApp() {
       setHasEdited(false);
       setCompareMode(false);
       setPhase("decoding");
+      debugLog(`ingest start: ${name} ${(blob.size / 1e6).toFixed(2)}MB type=${blob.type}`);
       try {
         const decoded = await decodeImage(blob, name);
         bitmapRef.current = decoded.bitmap;
@@ -180,11 +185,19 @@ export default function EraserApp() {
         originalBitmapRef.current = decoded.bitmap;
         setImage(decoded);
         setPhase("ready");
+        debugLog(
+          `ingest ok: ${decoded.width}x${decoded.height}` +
+            (decoded.downscaled
+              ? ` (downscaled from ${decoded.sourceWidth}x${decoded.sourceHeight})`
+              : ""),
+        );
+        debugFact("image", `${decoded.width}x${decoded.height} (${name})`);
       } catch (e) {
         const err =
           e instanceof ImageDecodeError
             ? { code: e.code, message: e.message }
             : { code: "decode-failed", message: "Something went wrong reading that image." };
+        debugLog(`ingest FAILED: ${err.code} — ${err.message}`);
         setError(err);
         setImage(null);
         setPhase("error");
@@ -271,12 +284,15 @@ export default function EraserApp() {
     setEraseError(null);
     setErasing(true);
     setEraseStatus({ phase: "download", progress: 0 });
+    debugLog(`erase START (${image.width}x${image.height})`);
     try {
       // Lazy-load the runtime (+ onnxruntime-web chunk) only now, on first erase.
       const { inpaint } = await import("./inpaint/runInpaint");
-      const { bitmap: result } = await inpaint(image.bitmap, mask.maskCanvas, (s) =>
-        setEraseStatus(s),
-      );
+      const { bitmap: result } = await inpaint(image.bitmap, mask.maskCanvas, (s) => {
+        debugLog(`inpaint ${s.phase}${s.progress != null ? ` ${Math.round(s.progress * 100)}%` : ""}`);
+        setEraseStatus(s);
+      });
+      debugLog("erase DONE");
       // 2A — swap the source bitmap in place. Same W×H, so the mask hook is NOT
       // recreated; we just clear the strokes so the next erase starts clean.
       const prev = bitmapRef.current;
@@ -309,6 +325,7 @@ export default function EraserApp() {
     async (sx: number, sy: number, positive: boolean) => {
       if (!image || erasing) return;
       setEraseError(null);
+      debugLog(`select click @(${Math.round(sx)},${Math.round(sy)}) ${positive ? "+" : "-"}`);
 
       // Append the new point and snapshot the full set for this request.
       const points = [...selPointsRef.current, { sx, sy, positive }];
@@ -318,19 +335,27 @@ export default function EraserApp() {
       setSegmenting(true);
       setSegStatus(null);
       try {
+        debugLog("import runSegment chunk…");
         const { createSamContext } = await import("./segment/runSegment");
         // (Re)build the per-image context if missing or stale (bitmap swapped).
         if (!samContextRef.current || samBitmapRef.current !== image.bitmap) {
+          debugLog("createSamContext START (download+compile+encode SAM)");
           samContextRef.current?.dispose();
           samContextRef.current = await createSamContext(
             image.bitmap,
             image.width,
             image.height,
-            (s) => setSegStatus(s),
+            (s) => {
+              debugLog(`SAM ${s.phase}${s.progress != null ? ` ${Math.round(s.progress * 100)}%` : ""}`);
+              setSegStatus(s);
+            },
           );
           samBitmapRef.current = image.bitmap;
+          debugLog(`createSamContext DONE (backend=${samContextRef.current.backend})`);
         }
+        debugLog(`decoder.segment(${points.length}pt) START`);
         const { masks: candidates } = await samContextRef.current.segment(points);
+        debugLog(`decoder.segment DONE → ${candidates.length} candidate(s)`);
         // Latest-click-wins: if a newer click already superseded this request (or
         // the selection was cleared / image changed), drop this stale result.
         if (reqId !== selReqRef.current) return;
@@ -343,6 +368,7 @@ export default function EraserApp() {
         setPreviewMask(candidates[0]);
         setPreviewRev((r) => r + 1);
       } catch (e) {
+        debugLog(`select FAILED: ${String(e)}`);
         console.error("[segment] failed", e);
         if (reqId === selReqRef.current) {
           // Roll the failed point back out of the set so a retry is clean.
@@ -466,6 +492,12 @@ export default function EraserApp() {
   // the iOS hint timer). Editor-only by design — marketing pages stay 0-JS.
   useEffect(() => {
     initPwaInstall();
+  }, []);
+
+  // --- On-page debug panel (?debug=1) — mount once on island mount. No-op
+  // unless the flag is present. Mounted early so it captures the whole session.
+  useEffect(() => {
+    mountDebugPanel();
   }, []);
 
   // --- First-run onboarding tour (commit 13) ---

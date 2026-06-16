@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrushMaskApi } from "./useBrushMask";
 import type { SamPoint } from "./segment/runSegment";
+import { debugLog } from "./debug";
 
 /**
  * CanvasEditor — the paint surface. Three stacked canvases sharing identical
@@ -279,9 +280,17 @@ export default function CanvasEditor({
       // In select mode we ALSO accept right-click (button 2) as a shortcut for a
       // negative point; in brush mode only the primary button paints.
       const isSelect = selectModeRef.current;
+      debugLog(
+        `pointerDown type=${e.pointerType} btn=${e.button} select=${isSelect} ` +
+          `client=(${Math.round(e.clientX)},${Math.round(e.clientY)})`,
+      );
       if (e.pointerType === "mouse" && e.button !== 0 && !(isSelect && e.button === 2)) return;
       const p = toSource(e.clientX, e.clientY);
-      if (!p) return;
+      if (!p) {
+        debugLog("pointerDown: toSource returned null (no fit) — IGNORED");
+        return;
+      }
+      debugLog(`pointerDown → source=(${Math.round(p.sx)},${Math.round(p.sy)})`);
       // Select mode: a click hands the source-space point + polarity to SAM; no
       // painting. Polarity = toolbar toggle, but alt-click OR right-click forces
       // negative (the desktop power-user shortcut; mobile uses the toggle).
