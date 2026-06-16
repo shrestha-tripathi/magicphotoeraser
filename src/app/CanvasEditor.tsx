@@ -338,7 +338,17 @@ export default function CanvasEditor({
   return (
     <div
       ref={containerRef}
-      className="relative flex h-full w-full items-center justify-center overflow-hidden p-3 sm:p-6"
+      // NOTE: deliberately NO `h-full` here. The parent stage is a flex column
+      // whose height comes from `flex-1`, which does NOT give a percentage-height
+      // child a definite basis — so `h-full` (height:100%) fails to resolve and
+      // the container collapses to its CONTENT height. Because the canvas is sized
+      // FROM the container's height (the fit logic below), that creates a circular
+      // dependency that settles at a tiny fixed point → the image renders as a
+      // miniature (and, compounded with the padding subtraction, mismaps touch).
+      // Instead we rely on the stage's `items-stretch` to stretch this container
+      // to the stage's full definite height. min-h-0 lets it shrink correctly in
+      // the flex column. See git history: this fixed the post-mobile-fix regression.
+      className="relative flex min-h-0 w-full items-center justify-center overflow-hidden p-3 sm:p-6"
     >
       <div className="relative" style={{ lineHeight: 0 }}>
         <canvas
