@@ -315,19 +315,23 @@ export default function EraserApp() {
         debugLog(`inpaint ${s.phase}${s.progress != null ? ` ${Math.round(s.progress * 100)}%` : ""}`);
         setEraseStatus(s);
       });
-      debugLog("erase DONE");
+      debugLog("erase DONE — inpaint returned result bitmap");
       // 2A — swap the source bitmap in place. Same W×H, so the mask hook is NOT
       // recreated; we just clear the strokes so the next erase starts clean.
       const prev = bitmapRef.current;
       bitmapRef.current = result;
+      debugLog("post-erase: setImage(result)…");
       setImage((img) => (img ? { ...img, bitmap: result } : img));
+      debugLog("post-erase: mask.clear()…");
       mask.clear();
       setHasEdited(true);
       // Free the bitmap we just replaced — UNLESS it's the pristine original
       // (which we retain for Compare / Revert), or the same object as the result.
       if (prev && prev !== result && prev !== originalBitmapRef.current) {
+        debugLog("post-erase: prev.close() (free old bitmap)…");
         prev.close();
       }
+      debugLog("post-erase: DONE (result shown, awaiting repaint)");
     } catch (e) {
       console.error("[erase] failed", e);
       setEraseError(

@@ -50,7 +50,25 @@ function _render(): void {
   if (!_bodyEl || _collapsed) return;
   const factLines = Object.entries(_facts).map(([k, v]) => `${k}: ${v}`);
   _bodyEl.textContent =
-    factLines.join("\n") + "\n──────── events ────────\n" + _logLines.join("\n");
+    (_prevCrashTail ? _prevCrashTail + "\n" : "") +
+    factLines.join("\n") +
+    "\n──────── events ────────\n" +
+    _logLines.join("\n");
+}
+
+// sessionStorage key for crash-survival: the log is mirrored here on EVERY append,
+// so if iOS jetsams + auto-reloads the tab (the "it reloads the app" symptom), the
+// NEXT load can show the tail that was on screen the instant before the kill.
+const _CRASH_KEY = "mpe:debug:lastlog";
+let _prevCrashTail = "";
+
+function _persist(): void {
+  try {
+    // Keep it small — only the last ~40 lines matter for the crash signature.
+    sessionStorage.setItem(_CRASH_KEY, _logLines.slice(-40).join("\n"));
+  } catch {
+    /* private mode / quota — best-effort */
+  }
 }
 
 /** Append a timestamped event line (no-op unless ?debug=1). */
@@ -60,6 +78,7 @@ export function debugLog(msg: string): void {
     typeof performance !== "undefined" ? (performance.now() / 1000).toFixed(2) : "?";
   _logLines.push(`[${t}s] ${msg}`);
   if (_logLines.length > 250) _logLines.shift();
+  _persist();
   _render();
 }
 
@@ -181,6 +200,27 @@ export function mountDebugPanel(): void {
   _panelEl.appendChild(_bodyEl);
   document.body.appendChild(_panelEl);
 
+  // CRASH-SURVIVAL: if a previous load left a log tail in sessionStorage, the tab
+  // was reloaded (likely an iOS jetsam kill — the "it reloads the app" symptom).
+  // Show that tail FIRST, brightly, so the user's screenshot captures the lines
+  // that were on screen the instant before the kill — the crash signature.
+  try {
+    const tail = sessionStorage.getItem(_CRASH_KEY);
+    if (tail) {
+      _prevCrashTail =
+        "╔══ PREVIOUS SESSION (before reload/crash) ══\n" +
+        tail
+          .split("\n")
+          .map((l) => "║ " + l)
+          .join("\n") +
+        "\n╚════════════════════════════════════════════";
+      // Clear so a normal manual reload later doesn't keep showing a stale crash.
+      sessionStorage.removeItem(_CRASH_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+
   // Surface otherwise-silent failures (esp. the Arc "did nothing" case).
   window.addEventListener("error", (e) => {
     debugLog(`window.error: ${e.message} @ ${e.filename ?? "?"}:${e.lineno ?? "?"}`);
@@ -188,10 +228,24 @@ export function mountDebugPanel(): void {
   window.addEventListener("unhandledrejection", (e) => {
     debugLog(`unhandledrejection: ${String((e as PromiseRejectionEvent).reason)}`);
   });
+  // iOS fires pagehide right before the OS may discard the tab — log it so the
+  // persisted tail ends with a clear "page hidden" marker if a kill follows.
+  window.addEventListener("pagehide", () => debugLog("pagehide (tab backgrounded/discarded)"));
 
   debugLog("debug panel mounted");
   void _collectStaticFacts();
 
-  // Refresh heap every 1.5 s so the user can watch memory climb toward the kill.
+  // Heartbeat: log "alive" every 2s with a counter. After an erase, if the log
+  // STOPS advancing (no more heartbeats) and the tab reloads, the gap pins the
+  // moment of death — esp. useful on WebKit where performance.memory is absent.
+  let _beat = 0;
+  window.setInterval(() => {
+    _beat++;
+    const mem = (performance as unknown as PerfWithMemory).memory;
+    const memStr = mem ? ` heap=${(mem.usedJSHeapSize / 1e6).toFixed(0)}MB` : "";
+    debugLog(`♥ alive #${_beat}${memStr}`);
+  }, 2000);
+
+  // Refresh heap fact every 1.5 s so the user can watch memory climb toward the kill.
   window.setInterval(_refreshHeap, 1500);
 }
