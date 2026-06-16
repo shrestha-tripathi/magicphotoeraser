@@ -54,10 +54,10 @@ export const site = {
    * disables the gtag.js snippet entirely. Only injected in production builds
    * so localhost dev never pollutes the analytics property.
    *
-   * INTENTIONALLY EMPTY for now — set PUBLIC_GA_MEASUREMENT_ID (or drop the ID
-   * here) once the dedicated GA4 property exists.
+   * Live property G-PPEGBCKZ4C (set Jun 2026). Override per-deploy with
+   * PUBLIC_GA_MEASUREMENT_ID if a different property is ever needed.
    */
-  gaId: env.PUBLIC_GA_MEASUREMENT_ID ?? "",
+  gaId: env.PUBLIC_GA_MEASUREMENT_ID ?? "G-PPEGBCKZ4C",
 } as const;
 
 export type SiteConfig = typeof site;
