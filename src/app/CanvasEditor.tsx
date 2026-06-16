@@ -100,8 +100,19 @@ export default function CanvasEditor({
       const cw = container.clientWidth;
       const ch = container.clientHeight;
       if (cw <= 0 || ch <= 0) return;
+      // The canvas renders INSIDE the container's padding (p-3 / sm:p-6), and a
+      // `max-w-full` cap would otherwise shrink it below the size this fit logic
+      // assumes — making f.scale wrong and mismapping touch coords (the mobile
+      // brush/select bug). Subtract the actual computed padding so displayWidth
+      // equals what's truly rendered, and toSource() maps 1:1. Read padding from
+      // computed style so it stays correct across the responsive p-3 → sm:p-6.
+      const cs = window.getComputedStyle(container);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const availW = Math.max(1, cw - padX);
+      const availH = Math.max(1, ch - padY);
       const dpr = window.devicePixelRatio || 1;
-      const scale = Math.min(cw / bitmap.width, ch / bitmap.height, 1);
+      const scale = Math.min(availW / bitmap.width, availH / bitmap.height, 1);
       const displayWidth = Math.max(1, Math.round(bitmap.width * scale));
       const displayHeight = Math.max(1, Math.round(bitmap.height * scale));
       const backingW = Math.round(displayWidth * dpr);
@@ -281,7 +292,15 @@ export default function CanvasEditor({
         onSelectClickRef.current?.(p.sx, p.sy, positive);
         return;
       }
-      (e.target as Element).setPointerCapture?.(e.pointerId);
+      // setPointerCapture keeps the stroke alive if the finger leaves the canvas
+      // mid-drag. Guard it: on rare devices / edge timing it can throw
+      // ("no active pointer with the given id"); a throw here must NOT abort the
+      // stroke, so swallow it and paint regardless.
+      try {
+        (e.target as Element).setPointerCapture?.(e.pointerId);
+      } catch {
+        /* capture is best-effort; painting continues without it */
+      }
       paintingRef.current = true;
       beginStroke(p.sx, p.sy);
       moveCursor(p.cssX, p.cssY);
@@ -324,12 +343,12 @@ export default function CanvasEditor({
       <div className="relative" style={{ lineHeight: 0 }}>
         <canvas
           ref={imageCanvasRef}
-          className="mpe-checkerboard block max-h-full max-w-full rounded-lg shadow-lg ring-1 ring-black/10"
+          className="mpe-checkerboard block rounded-lg shadow-lg ring-1 ring-black/10"
           aria-label="Your photo"
         />
         <canvas
           ref={maskCanvasRef}
-          className="absolute left-0 top-0 block max-h-full max-w-full rounded-lg"
+          className="absolute left-0 top-0 block rounded-lg"
           style={{ touchAction: "none", cursor: selectMode ? "crosshair" : "none" }}
           aria-label={
             selectMode
@@ -356,7 +375,7 @@ export default function CanvasEditor({
         <canvas
           ref={previewCanvasRef}
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 block max-h-full max-w-full rounded-lg"
+          className="pointer-events-none absolute left-0 top-0 block rounded-lg"
         />
         {/* Brush-size cursor ring (DOM, not canvas) */}
         <div
